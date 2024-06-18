@@ -115,7 +115,9 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1); // Start PWM generation on timer 1, channel 1
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   HAL_GPIO_WritePin(TMR_1_1_PH_GPIO_Port, TMR_1_1_PH_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(TMR_1_2_PH_GPIO_Port, TMR_1_2_PH_Pin, GPIO_PIN_SET); //Initializes the channel 2 Pins
   gen_sine();
   /* USER CODE END 2 */
 
