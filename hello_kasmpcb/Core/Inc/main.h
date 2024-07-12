@@ -61,6 +61,8 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define TMR_1_1_PH_Pin GPIO_PIN_0
 #define TMR_1_1_PH_GPIO_Port GPIOE
+#define TMR_1_2_PH_Pin GPIO_PIN_1
+#define TMR_1_2_PH_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
 
