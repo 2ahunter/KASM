@@ -95,8 +95,6 @@ void Error_Handler(void);
 #define HRTIM_CHD1_PH_GPIO_Port GPIOD
 #define HRTIM_CHD2_PH_Pin GPIO_PIN_11
 #define HRTIM_CHD2_PH_GPIO_Port GPIOD
-#define QUADSPI_BK2_NCS_Pin GPIO_PIN_11
-#define QUADSPI_BK2_NCS_GPIO_Port GPIOC
 #define TIM4_CH3_PH_Pin GPIO_PIN_12
 #define TIM4_CH3_PH_GPIO_Port GPIOC
 #define TIM15_CH2_PH_Pin GPIO_PIN_0

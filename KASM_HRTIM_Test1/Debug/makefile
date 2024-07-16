@@ -60,8 +60,8 @@ all: main-build
 main-build: KASM_HRTIM_Test1.elf secondary-outputs
 
 # Tool invocations
-KASM_HRTIM_Test1.elf KASM_HRTIM_Test1.map: $(OBJS) $(USER_OBJS) C:\Users\casim\STM32CubeIDE\workspace_1.15.1\KASM_HRTIM_Test1\STM32H750VBTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "KASM_HRTIM_Test1.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Users\casim\STM32CubeIDE\workspace_1.15.1\KASM_HRTIM_Test1\STM32H750VBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="KASM_HRTIM_Test1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+KASM_HRTIM_Test1.elf KASM_HRTIM_Test1.map: $(OBJS) $(USER_OBJS) C:\Akamai\KASM\KASM_HRTIM_Test1\STM32H750VBTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "KASM_HRTIM_Test1.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Akamai\KASM\KASM_HRTIM_Test1\STM32H750VBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="KASM_HRTIM_Test1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

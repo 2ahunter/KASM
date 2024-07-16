@@ -1,0 +1,21 @@
+14:54:03 **** Incremental Build of configuration Debug for project KASM_HRTIM_Test1 ****
+make -j16 all 
+arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m7 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32H750xx -c -I../Core/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
+arm-none-eabi-gcc -o "KASM_HRTIM_Test1.elf" @"objects.list"   -mcpu=cortex-m7 -T"C:\Akamai\KASM\KASM_HRTIM_Test1\STM32H750VBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="KASM_HRTIM_Test1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
+Finished building target: KASM_HRTIM_Test1.elf
+ 
+arm-none-eabi-size  KASM_HRTIM_Test1.elf 
+arm-none-eabi-objdump -h -S KASM_HRTIM_Test1.elf  > "KASM_HRTIM_Test1.list"
+   text	   data	    bss	    dec	    hex	filename
+  63320	    476	  11184	  74980	  124e4	KASM_HRTIM_Test1.elf
+Finished building: default.size.stdout
+ 
+Finished building: KASM_HRTIM_Test1.list
+ 
+14:54:16 **** Incremental Build of configuration Debug for project KASM_HRTIM_Test1 ****
+make -j16 all 
+arm-none-eabi-size  KASM_HRTIM_Test1.elf 
+   text	   data	    bss	    dec	    hex	filename
+  63320	    476	  11184	  74980	  124e4	KASM_HRTIM_Test1.elf
+Finished building: default.size.stdout
+ 

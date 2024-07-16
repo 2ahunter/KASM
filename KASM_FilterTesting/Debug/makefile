@@ -60,8 +60,8 @@ all: main-build
 main-build: KASM_FilterTesting.elf secondary-outputs
 
 # Tool invocations
-KASM_FilterTesting.elf KASM_FilterTesting.map: $(OBJS) $(USER_OBJS) C:\Users\casim\STM32CubeIDE\workspace_1.15.1\KASM_FilterTesting\STM32H750VBTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "KASM_FilterTesting.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Users\casim\STM32CubeIDE\workspace_1.15.1\KASM_FilterTesting\STM32H750VBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="KASM_FilterTesting.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+KASM_FilterTesting.elf KASM_FilterTesting.map: $(OBJS) $(USER_OBJS) C:\Akamai\KASM\KASM_FilterTesting\STM32H750VBTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "KASM_FilterTesting.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Akamai\KASM\KASM_FilterTesting\STM32H750VBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="KASM_FilterTesting.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

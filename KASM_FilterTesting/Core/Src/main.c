@@ -78,7 +78,17 @@ uint8_t ctrl_tmr_expired = FALSE; //controller update flag
 static double ref=0;// reference (input) for control loop
 static double sine_vals[SIN_PERIOD] = {0};
 
-uint8_t tx_buffer[27] = "Initialization Complete\n\r";
+//Variables for UART Output
+char message[64] = {'\0'};
+uint16_t read_TIM1() {
+  return TIM1->CNT;
+}
+
+
+//This one works for just outputing one line, without timer count
+/*
+uint8_t tx_buffer[27] = "Initialization Complete: ";
+*/
 
 /* USER CODE END PV */
 
@@ -170,8 +180,11 @@ int main(void)
     //End Timer 1
 
 
-    //gen_sine();
-    HAL_UART_Transmit(&huart4, tx_buffer, 27, 10);
+    //HAL_UART_Transmit(&huart4, tx_buffer, 27, 10);
+    sprintf(message, "Timer 1 Initialization Complete: %d \n\r", read_TIM1);
+    HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
+    //End UART Transmit
+
 
   /* USER CODE END 2 */
 
