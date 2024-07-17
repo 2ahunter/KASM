@@ -45,8 +45,8 @@
 #define ONESEC 10000
 
 //Used for producing UART output in time-scale instead of timer ticks
-#define PERIOD_SCALE (1/24000)
-#define TICK_SCALE (1/240000000)
+#define PERIOD_SCALE (1.0/24000)
+#define TICK_SCALE (1.0/240000000)
 
 
 /* USER CODE END PD */
