@@ -85,26 +85,27 @@ static double sine_vals[SIN_PERIOD] = {0};
 
 
 //Variables for UART Output
-//static long long int sys_timer = 0;
-//char message[64] = {'\0'};
+static long long int sys_timer = 0;
+char message[64] = {'\0'};
 
 //Counter for UART Output in Time-Scale
 	static long int period_ticks = 0;
 	char buffer[64];
-	float read_TIM1(){
+
+	float read_TIM1_sec(){
 		float time = 0;
 		time = period_ticks * PERIOD_SCALE + TIM1->CNT * TICK_SCALE;
 		return time;
 	}
 
 
+
 //Counter for UART Output in clock ticks
-/*
-	uint16_t read_TIM1() {
+		uint64_t read_TIM1() {
 		//return TIM1->CNT;
 		 return TIM1->CNT + sys_timer;
 	  }
-*/
+
 
 //This one works for just outputing one line, without timer count
 /*
@@ -203,14 +204,19 @@ int main(void)
   HAL_GPIO_WritePin(TIM1_CH4_PH_GPIO_Port, TIM1_CH4_PH_Pin, GPIO_PIN_SET);
 
 			//Timer 1 Init. Message Over UART
-  	/*
+
 			sprintf(message, "Tim1 Init: %d \n\r", read_TIM1());
 			HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-			//End UART Transmit
-   */
 
-  	  	  	sprintf(buffer, "Tim1: %.2f \n\r", read_TIM1());
+
+  	  	  	sprintf(buffer, "Tim1 sec: %e \n\r", read_TIM1_sec());
   			HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
+  			sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
+  			HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
+  			sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
+  			HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
+  			//End UART Transmit
+
   //End Timer 1
 
 
@@ -221,14 +227,17 @@ int main(void)
   HAL_GPIO_WritePin(TIM2_CH1_PH_GPIO_Port, TIM2_CH1_PH_Pin, GPIO_PIN_SET);
 
   	  	  	//Timer 2 Init. Message Over UART
-  /*
+
   			sprintf(message, "Tim2 Init: %d \n\r", read_TIM1());
   			HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-  			//End UART Transmit
-  */
 
-  	  	  	sprintf(buffer, "Tim2: %.2f \n\r", read_TIM1());
+  	  	  	sprintf(buffer, "Tim2 sec: %e \n\r", read_TIM1_sec());
     		HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
+    		sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
+    		HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
+    		sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
+    		HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
+    		//End UART Transmit
   //End Timer 2
 
 
@@ -245,14 +254,17 @@ int main(void)
   HAL_GPIO_WritePin(TIM4_CH4_PH_GPIO_Port, TIM4_CH4_PH_Pin, GPIO_PIN_SET);
 
   	  	  	  //Timer 4 Init. Message Over UART
-  /*
     		  sprintf(message, "Tim4 Init: %d \n\r", read_TIM1());
     		  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-    		  //End UART Transmit
-    		   */
 
-  	  	  	sprintf(buffer, "Tim4: %.2f \n\r", read_TIM1());
-      		HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
+
+  	  	  	  sprintf(buffer, "Tim4 sec: %e \n\r", read_TIM1_sec());
+      		  HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
+      		  sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
+      		  HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
+      		  sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
+      		  HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
+      		  //End UART Transmit
   //End Timer 4
 
 
@@ -264,15 +276,19 @@ int main(void)
   HAL_GPIO_WritePin(TIM5_CH2_PH_GPIO_Port, TIM5_CH2_PH_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(TIM5_CH3_PH_GPIO_Port, TIM5_CH3_PH_Pin, GPIO_PIN_SET);
 
-  /*
+
   	  	  	  //Timer 5 Init. Message Over UART
       		  sprintf(message, "Tim5 Init: %d \n\r", read_TIM1());
       		  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-      		  //End UART Transmit
 
-      		   */
-  	  	  	  sprintf(buffer, "Tim5: %.2f \n\r", read_TIM1());
+
+  	  	  	  sprintf(buffer, "Tim5 sec: %e \n\r", read_TIM1_sec());
         	  HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
+        	  sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
+        	  HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
+        	  sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
+        	  HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
+        	  //End UART Transmit
   //End Timer 5
 
 
@@ -282,12 +298,12 @@ int main(void)
   HAL_GPIO_WritePin(TIM8_CH4_PH_GPIO_Port, TIM8_CH4_PH_Pin, GPIO_PIN_SET);
 
   	  	  	  //Timer 8 Init. Message Over UART
-  /*
+
         	  sprintf(message, "Tim8 Init: %d \n\r", read_TIM1());
         	  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
         	  //End UART Transmit
 
-        	   */
+
   //End Timer 8
 
 
@@ -297,12 +313,10 @@ int main(void)
   HAL_GPIO_WritePin(TIM12_CH2_PH_GPIO_Port, TIM12_CH2_PH_Pin, GPIO_PIN_SET);
 
   	  	  	  //Timer 12 Init. Message Over UART
-  /*
          	  sprintf(message, "Tim12 Init: %d \n\r", read_TIM1());
          	  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
          	  //End UART Transmit
 
-         	   */
   //End Timer 12
 
 
@@ -312,12 +326,11 @@ int main(void)
   HAL_GPIO_WritePin(TIM13_CH1_PH_GPIO_Port, TIM13_CH1_PH_Pin, GPIO_PIN_SET);
 
   	  	  	  //Timer 13 Init. Message Over UART
-  /*
+
            	  sprintf(message, "Tim13 Init: %d \n\r", read_TIM1());
            	  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
            	  //End UART Transmit
-           	   *
-           	   */
+
   //End Timer 13
 
 
@@ -327,12 +340,10 @@ int main(void)
   HAL_GPIO_WritePin(TIM14_CH1_PH_GPIO_Port, TIM14_CH1_PH_Pin, GPIO_PIN_SET);
 
   	  	  	  //Timer 14 Init. Message Over UART
-  /*
            	  sprintf(message, "Tim14 Init: %d \n\r", read_TIM1());
            	  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
            	  //End UART Transmit
-           	   *
-           	   */
+
   //End Timer 14
 
 
@@ -344,12 +355,9 @@ int main(void)
   HAL_GPIO_WritePin(TIM15_CH2_PH_GPIO_Port, TIM15_CH2_PH_Pin, GPIO_PIN_SET);
 
   	  	  	  //Timer 15 Init. Message Over UART
-  /*
            	  sprintf(message, "Tim15 Init: %d \n\r", read_TIM1());
            	  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
            	  //End UART Transmit
-           	   *
-           	   */
   //End Timer 15
 
 
@@ -359,12 +367,9 @@ int main(void)
   HAL_GPIO_WritePin(TIM16_CH1_PH_GPIO_Port, TIM16_CH1_PH_Pin, GPIO_PIN_SET);
 
   	  	  	  //Timer 16 Init. Message Over UART
-  /*
               sprintf(message, "Tim16 Init: %d \n\r", read_TIM1());
               HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
               //End UART Transmit
-               *
-               */
   //End Timer 16
 
 
@@ -381,12 +386,9 @@ int main(void)
      //HAL_GPIO_WritePin(SPI2_NSS_GPIO_Port, SPI2_NSS_Pin, GPIO_PIN_RESET);
 
      	 	 //HRTIM Init. Message Over UART
-     /*
              sprintf(message, "HRTIM Init: %d \n\r", read_TIM1());
              HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
              //End UART Transmit
-              *
-              */
   //END HRTIM CODE
 
 
@@ -397,12 +399,9 @@ int main(void)
        	LPTIM1->ARR = (12000-1);
 
        		//LPTIM Init. Message Over UART
-       	/*
        	    sprintf(message, "LPTIM Init: %d \n\r", read_TIM1());
        	    HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
        	    //End UART Transmit
-       	     *
-       	     */
   //End Low Power Timer
 
    gen_sine();
@@ -1473,10 +1472,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	const double step = 0.3;// max step size in volts
 
 	//Used to account for period in time clicks for UART Output
-		//sys_timer+= 24000;
+		sys_timer+= 24000;
 
 	//Used to account for period in time-scale for UART Output
 		period_ticks ++;
+
 
     if (htim==&htim1){
     	t+=1;
