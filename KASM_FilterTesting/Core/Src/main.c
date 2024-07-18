@@ -113,6 +113,8 @@ static void MX_UART4_Init(void);
 static void control_update(double ref);
 static uint16_t calc_dutycycle(double v_in, double vss);
 static void gen_sine(void);
+
+double compute_out(double ref);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -1251,7 +1253,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		static int i=0;
 		static int dir=1;
 		static int phase = 1;
-		const double step = 0.0075;// reference (arbitrary units)
+		const double step = 0.075;// reference (arbitrary units)
 
 		if (htim==&htim1){
 		  i+=1;
@@ -1272,19 +1274,8 @@ static void control_update(double ref)
 	  // sign bit of the command fed to phase input on the h-bridge
 	  int phase=0;
 	  uint16_t dutycycle=0;
-	  // commands buffer
-	  static double u[2]= {0};
-	  // output buffer
-	  static double y[2] = {0};
-	  // lead filter numerator coefficients
-	  const double a[2] = {1.00,-0.9596};
-	  // lead filter denominator coefficients
-	  const double b[2]={1.00,-0.7304};
 
-	  // compute filter output
-	  u[0] = ref;
-	  y[0] = -a[1]*y[1] +  b[0]*u[0] + b[1]*u[1];
-	  out = y[0];
+	  out = compute_out(ref) ;
 
 	  // set the sign of the move (phase)
 	  if(out <0)
@@ -1300,9 +1291,6 @@ static void control_update(double ref)
 	  dutycycle = calc_dutycycle(out,VSS);
 	  TIM1->CCR1 = dutycycle; //set the new timer duty cycle
 
-	  // update state
-	  y[1] = y[0];
-	  u[1] = u[0];
 
 	  // reset timer flag
 	  ctrl_tmr_expired = FALSE;
@@ -1413,6 +1401,25 @@ static void gen_sine(void)
 	{
 		sine_vals[i] = sin(i*scale);
 	}
+}
+
+double compute_out(double ref){
+    static double u[2]= {0};
+    // output buffer
+    static double y[2] = {0};
+    // lead filter numerator coefficients
+    const double a[2] = {1.00,-0.7181};
+    // lead filter denominator coefficients
+    const double b[2]={6.3462,-6.0651};
+    double out;
+    // compute filter output
+    u[0] = ref;
+    y[0] = -a[1]*y[1] +  b[0]*u[0] + b[1]*u[1];
+    // update state
+    y[1] = y[0];
+    u[1] = u[0];
+    out=y[0];
+    return(out);
 }
 
 /* USER CODE END 4 */

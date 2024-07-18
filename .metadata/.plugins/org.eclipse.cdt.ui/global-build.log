@@ -1,233 +1,226 @@
-17:50:16 **** Incremental Build of configuration Debug for project KASM_HRTIM_Test1 ****
+16:46:07 **** Incremental Build of configuration Debug for project KASM_HRTIM_Test1 ****
 make -j16 all 
 arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m7 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32H750xx -c -I../Core/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
 ../Core/Src/main.c: In function 'main':
-../Core/Src/main.c:208:55: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  208 |                         sprintf(message, "Tim1 Init: %d \n\r", read_TIM1());
+../Core/Src/main.c:204:25: warning: implicit declaration of function 'sprintf' [-Wimplicit-function-declaration]
+  204 |                         sprintf(message, "Tim1 Init: %d \n\r", read_TIM1());
+      |                         ^~~~~~~
+../Core/Src/main.c:21:1: note: include '<stdio.h>' or provide a declaration of 'sprintf'
+   20 | #include "main.h"
+  +++ |+#include <stdio.h>
+   21 | 
+../Core/Src/main.c:204:25: warning: incompatible implicit declaration of built-in function 'sprintf' [-Wbuiltin-declaration-mismatch]
+  204 |                         sprintf(message, "Tim1 Init: %d \n\r", read_TIM1());
+      |                         ^~~~~~~
+../Core/Src/main.c:204:25: note: include '<stdio.h>' or provide a declaration of 'sprintf'
+../Core/Src/main.c:204:55: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
+  204 |                         sprintf(message, "Tim1 Init: %d \n\r", read_TIM1());
       |                                                      ~^        ~~~~~~~~~~~
       |                                                       |        |
       |                                                       int      uint64_t {aka long long unsigned int}
       |                                                      %lld
-../Core/Src/main.c:227:55: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  227 |                         sprintf(message, "Tim2 Init: %d \n\r", read_TIM1());
-      |                                                      ~^        ~~~~~~~~~~~
-      |                                                       |        |
-      |                                                       int      uint64_t {aka long long unsigned int}
-      |                                                      %lld
-../Core/Src/main.c:249:49: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  249 |                   sprintf(message, "Tim4 Init: %d \n\r", read_TIM1());
-      |                                                ~^        ~~~~~~~~~~~
-      |                                                 |        |
-      |                                                 int      uint64_t {aka long long unsigned int}
-      |                                                %lld
-../Core/Src/main.c:269:49: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  269 |                   sprintf(message, "Tim5 Init: %d \n\r", read_TIM1());
-      |                                                ~^        ~~~~~~~~~~~
-      |                                                 |        |
-      |                                                 int      uint64_t {aka long long unsigned int}
-      |                                                %lld
-../Core/Src/main.c:275:47: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
-  275 |                   sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
-      |                                              ~^
-      |                                               |
-      |                                               int
-      |                                              %ld
-../Core/Src/main.c:277:46: warning: format '%d' expects argument of type 'int', but argument 3 has type 'long int' [-Wformat=]
-  277 |                   sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
-      |                                             ~^        ~~~~~~~~~~~~
-      |                                              |        |
-      |                                              int      long int
-      |                                             %ld
-../Core/Src/main.c:290:49: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  290 |                   sprintf(message, "Tim8 Init: %d \n\r", read_TIM1());
-      |                                                ~^        ~~~~~~~~~~~
-      |                                                 |        |
-      |                                                 int      uint64_t {aka long long unsigned int}
-      |                                                %lld
-../Core/Src/main.c:304:50: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  304 |                   sprintf(message, "Tim12 Init: %d \n\r", read_TIM1());
-      |                                                 ~^        ~~~~~~~~~~~
-      |                                                  |        |
-      |                                                  int      uint64_t {aka long long unsigned int}
-      |                                                 %lld
-../Core/Src/main.c:318:50: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  318 |                   sprintf(message, "Tim13 Init: %d \n\r", read_TIM1());
-      |                                                 ~^        ~~~~~~~~~~~
-      |                                                  |        |
-      |                                                  int      uint64_t {aka long long unsigned int}
-      |                                                 %lld
-../Core/Src/main.c:331:50: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  331 |                   sprintf(message, "Tim14 Init: %d \n\r", read_TIM1());
-      |                                                 ~^        ~~~~~~~~~~~
-      |                                                  |        |
-      |                                                  int      uint64_t {aka long long unsigned int}
-      |                                                 %lld
-../Core/Src/main.c:346:50: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  346 |                   sprintf(message, "Tim15 Init: %d \n\r", read_TIM1());
-      |                                                 ~^        ~~~~~~~~~~~
-      |                                                  |        |
-      |                                                  int      uint64_t {aka long long unsigned int}
-      |                                                 %lld
-../Core/Src/main.c:358:46: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  358 |               sprintf(message, "Tim16 Init: %d \n\r", read_TIM1());
-      |                                             ~^        ~~~~~~~~~~~
-      |                                              |        |
-      |                                              int      uint64_t {aka long long unsigned int}
-      |                                             %lld
-../Core/Src/main.c:377:45: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  377 |              sprintf(message, "HRTIM Init: %d \n\r", read_TIM1());
-      |                                            ~^        ~~~~~~~~~~~
-      |                                             |        |
-      |                                             int      uint64_t {aka long long unsigned int}
-      |                                            %lld
-../Core/Src/main.c:390:44: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  390 |             sprintf(message, "LPTIM Init: %d \n\r", read_TIM1());
-      |                                           ~^        ~~~~~~~~~~~
-      |                                            |        |
-      |                                            int      uint64_t {aka long long unsigned int}
-      |                                           %lld
-arm-none-eabi-gcc -o "KASM_HRTIM_Test1.elf" @"objects.list"   -mcpu=cortex-m7 -T"C:\Akamai\KASM\KASM_HRTIM_Test1\STM32H750VBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="KASM_HRTIM_Test1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
-Finished building target: KASM_HRTIM_Test1.elf
- 
-arm-none-eabi-size  KASM_HRTIM_Test1.elf 
-arm-none-eabi-objdump -h -S KASM_HRTIM_Test1.elf  > "KASM_HRTIM_Test1.list"
-   text	   data	    bss	    dec	    hex	filename
-  64104	    476	  11256	  75836	  1283c	KASM_HRTIM_Test1.elf
-Finished building: default.size.stdout
- 
-Finished building: KASM_HRTIM_Test1.list
- 
-17:51:32 **** Incremental Build of configuration Debug for project KASM_HRTIM_Test1 ****
-make -j16 all 
-arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m7 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32H750xx -c -I../Core/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
-../Core/Src/main.c: In function 'main':
-../Core/Src/main.c:208:55: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  208 |                         sprintf(message, "Tim1 Init: %d \n\r", read_TIM1());
-      |                                                      ~^        ~~~~~~~~~~~
-      |                                                       |        |
-      |                                                       int      uint64_t {aka long long unsigned int}
-      |                                                      %lld
-../Core/Src/main.c:214:53: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
-  214 |                         sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
+../Core/Src/main.c:209:53: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  209 |                         sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
       |                                                    ~^
       |                                                     |
       |                                                     int
       |                                                    %ld
-../Core/Src/main.c:216:52: warning: format '%d' expects argument of type 'int', but argument 3 has type 'long int' [-Wformat=]
-  216 |                         sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
+../Core/Src/main.c:211:52: warning: format '%d' expects argument of type 'int', but argument 3 has type 'long int' [-Wformat=]
+  211 |                         sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
       |                                                   ~^        ~~~~~~~~~~~~
       |                                                    |        |
       |                                                    int      long int
       |                                                   %ld
-../Core/Src/main.c:231:55: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  231 |                         sprintf(message, "Tim2 Init: %d \n\r", read_TIM1());
+../Core/Src/main.c:224:55: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
+  224 |                         sprintf(message, "Tim2 Init: %d \n\r", read_TIM1());
       |                                                      ~^        ~~~~~~~~~~~
       |                                                       |        |
       |                                                       int      uint64_t {aka long long unsigned int}
       |                                                      %lld
-../Core/Src/main.c:236:45: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
-  236 |                 sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
+../Core/Src/main.c:229:45: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  229 |                 sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
       |                                            ~^
       |                                             |
       |                                             int
       |                                            %ld
-../Core/Src/main.c:238:44: warning: format '%d' expects argument of type 'int', but argument 3 has type 'long int' [-Wformat=]
-  238 |                 sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
+../Core/Src/main.c:231:44: warning: format '%d' expects argument of type 'int', but argument 3 has type 'long int' [-Wformat=]
+  231 |                 sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
       |                                           ~^        ~~~~~~~~~~~~
       |                                            |        |
       |                                            int      long int
       |                                           %ld
-../Core/Src/main.c:257:49: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  257 |                   sprintf(message, "Tim4 Init: %d \n\r", read_TIM1());
+../Core/Src/main.c:250:49: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
+  250 |                   sprintf(message, "Tim4 Init: %d \n\r", read_TIM1());
       |                                                ~^        ~~~~~~~~~~~
       |                                                 |        |
       |                                                 int      uint64_t {aka long long unsigned int}
       |                                                %lld
-../Core/Src/main.c:263:47: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
-  263 |                   sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
+../Core/Src/main.c:255:47: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  255 |                   sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
       |                                              ~^
       |                                               |
       |                                               int
       |                                              %ld
-../Core/Src/main.c:265:46: warning: format '%d' expects argument of type 'int', but argument 3 has type 'long int' [-Wformat=]
-  265 |                   sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
+../Core/Src/main.c:257:46: warning: format '%d' expects argument of type 'int', but argument 3 has type 'long int' [-Wformat=]
+  257 |                   sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
       |                                             ~^        ~~~~~~~~~~~~
       |                                              |        |
       |                                              int      long int
       |                                             %ld
-../Core/Src/main.c:281:49: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  281 |                   sprintf(message, "Tim5 Init: %d \n\r", read_TIM1());
+../Core/Src/main.c:272:49: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
+  272 |                   sprintf(message, "Tim5 Init: %d \n\r", read_TIM1());
       |                                                ~^        ~~~~~~~~~~~
       |                                                 |        |
       |                                                 int      uint64_t {aka long long unsigned int}
       |                                                %lld
-../Core/Src/main.c:287:47: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
-  287 |                   sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
+../Core/Src/main.c:277:47: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  277 |                   sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
       |                                              ~^
       |                                               |
       |                                               int
       |                                              %ld
-../Core/Src/main.c:289:46: warning: format '%d' expects argument of type 'int', but argument 3 has type 'long int' [-Wformat=]
-  289 |                   sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
+../Core/Src/main.c:279:46: warning: format '%d' expects argument of type 'int', but argument 3 has type 'long int' [-Wformat=]
+  279 |                   sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
       |                                             ~^        ~~~~~~~~~~~~
       |                                              |        |
       |                                              int      long int
       |                                             %ld
-../Core/Src/main.c:302:49: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  302 |                   sprintf(message, "Tim8 Init: %d \n\r", read_TIM1());
+../Core/Src/main.c:291:49: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
+  291 |                   sprintf(message, "Tim8 Init: %d \n\r", read_TIM1());
       |                                                ~^        ~~~~~~~~~~~
       |                                                 |        |
       |                                                 int      uint64_t {aka long long unsigned int}
       |                                                %lld
-../Core/Src/main.c:316:50: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  316 |                   sprintf(message, "Tim12 Init: %d \n\r", read_TIM1());
+../Core/Src/main.c:303:50: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
+  303 |                   sprintf(message, "Tim12 Init: %d \n\r", read_TIM1());
       |                                                 ~^        ~~~~~~~~~~~
       |                                                  |        |
       |                                                  int      uint64_t {aka long long unsigned int}
       |                                                 %lld
-../Core/Src/main.c:330:50: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  330 |                   sprintf(message, "Tim13 Init: %d \n\r", read_TIM1());
+../Core/Src/main.c:315:50: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
+  315 |                   sprintf(message, "Tim13 Init: %d \n\r", read_TIM1());
       |                                                 ~^        ~~~~~~~~~~~
       |                                                  |        |
       |                                                  int      uint64_t {aka long long unsigned int}
       |                                                 %lld
-../Core/Src/main.c:343:50: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  343 |                   sprintf(message, "Tim14 Init: %d \n\r", read_TIM1());
+../Core/Src/main.c:327:50: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
+  327 |                   sprintf(message, "Tim14 Init: %d \n\r", read_TIM1());
       |                                                 ~^        ~~~~~~~~~~~
       |                                                  |        |
       |                                                  int      uint64_t {aka long long unsigned int}
       |                                                 %lld
-../Core/Src/main.c:358:50: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  358 |                   sprintf(message, "Tim15 Init: %d \n\r", read_TIM1());
+../Core/Src/main.c:341:50: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
+  341 |                   sprintf(message, "Tim15 Init: %d \n\r", read_TIM1());
       |                                                 ~^        ~~~~~~~~~~~
       |                                                  |        |
       |                                                  int      uint64_t {aka long long unsigned int}
       |                                                 %lld
-../Core/Src/main.c:370:46: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  370 |               sprintf(message, "Tim16 Init: %d \n\r", read_TIM1());
+../Core/Src/main.c:353:46: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
+  353 |               sprintf(message, "Tim16 Init: %d \n\r", read_TIM1());
       |                                             ~^        ~~~~~~~~~~~
       |                                              |        |
       |                                              int      uint64_t {aka long long unsigned int}
       |                                             %lld
-../Core/Src/main.c:389:45: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  389 |              sprintf(message, "HRTIM Init: %d \n\r", read_TIM1());
+../Core/Src/main.c:367:45: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
+  367 |              sprintf(message, "HRTIM Init: %d \n\r", read_TIM1());
       |                                            ~^        ~~~~~~~~~~~
       |                                             |        |
       |                                             int      uint64_t {aka long long unsigned int}
       |                                            %lld
-../Core/Src/main.c:402:44: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
-  402 |             sprintf(message, "LPTIM Init: %d \n\r", read_TIM1());
+../Core/Src/main.c:380:44: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint64_t' {aka 'long long unsigned int'} [-Wformat=]
+  380 |             sprintf(message, "LPTIM Init: %d \n\r", read_TIM1());
       |                                           ~^        ~~~~~~~~~~~
       |                                            |        |
       |                                            int      uint64_t {aka long long unsigned int}
       |                                           %lld
+../Core/Src/main.c:399:55: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  399 |                         sprintf(buffer, "Tim2 Count: %d \n\r", TIM2->CNT);
+      |                                                      ~^
+      |                                                       |
+      |                                                       int
+      |                                                      %ld
+../Core/Src/main.c:402:55: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  402 |                         sprintf(buffer, "Tim4 Count: %d \n\r", TIM4->CNT);
+      |                                                      ~^
+      |                                                       |
+      |                                                       int
+      |                                                      %ld
+../Core/Src/main.c:405:55: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  405 |                         sprintf(buffer, "Tim5 Count: %d \n\r", TIM5->CNT);
+      |                                                      ~^
+      |                                                       |
+      |                                                       int
+      |                                                      %ld
+../Core/Src/main.c:408:55: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  408 |                         sprintf(buffer, "Tim8 Count: %d \n\r", TIM8->CNT);
+      |                                                      ~^
+      |                                                       |
+      |                                                       int
+      |                                                      %ld
+../Core/Src/main.c:411:56: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  411 |                         sprintf(buffer, "Tim12 Count: %d \n\r", TIM12->CNT);
+      |                                                       ~^
+      |                                                        |
+      |                                                        int
+      |                                                       %ld
+../Core/Src/main.c:414:56: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  414 |                         sprintf(buffer, "Tim13 Count: %d \n\r", TIM13->CNT);
+      |                                                       ~^
+      |                                                        |
+      |                                                        int
+      |                                                       %ld
+../Core/Src/main.c:417:56: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  417 |                         sprintf(buffer, "Tim14 Count: %d \n\r", TIM14->CNT);
+      |                                                       ~^
+      |                                                        |
+      |                                                        int
+      |                                                       %ld
+../Core/Src/main.c:420:56: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  420 |                         sprintf(buffer, "Tim15 Count: %d \n\r", TIM15->CNT);
+      |                                                       ~^
+      |                                                        |
+      |                                                        int
+      |                                                       %ld
+../Core/Src/main.c:423:56: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  423 |                         sprintf(buffer, "Tim16 Count: %d \n\r", TIM16->CNT);
+      |                                                       ~^
+      |                                                        |
+      |                                                        int
+      |                                                       %ld
+../Core/Src/main.c:426:56: warning: format '%d' expects argument of type 'int', but argument 3 has type 'uint32_t' {aka 'long unsigned int'} [-Wformat=]
+  426 |                         sprintf(buffer, "LPTIM Count: %d \n\r", LPTIM1->CNT);
+      |                                                       ~^
+      |                                                        |
+      |                                                        int
+      |                                                       %ld
 arm-none-eabi-gcc -o "KASM_HRTIM_Test1.elf" @"objects.list"   -mcpu=cortex-m7 -T"C:\Akamai\KASM\KASM_HRTIM_Test1\STM32H750VBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="KASM_HRTIM_Test1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
 Finished building target: KASM_HRTIM_Test1.elf
  
 arm-none-eabi-size  KASM_HRTIM_Test1.elf 
 arm-none-eabi-objdump -h -S KASM_HRTIM_Test1.elf  > "KASM_HRTIM_Test1.list"
    text	   data	    bss	    dec	    hex	filename
-  64280	    476	  11256	  76012	  128ec	KASM_HRTIM_Test1.elf
+  64840	    476	  11256	  76572	  12b1c	KASM_HRTIM_Test1.elf
+Finished building: default.size.stdout
+ 
+Finished building: KASM_HRTIM_Test1.list
+ 
+16:46:30 **** Incremental Build of configuration Debug for project KASM_HRTIM_Test1 ****
+make -j16 all 
+arm-none-eabi-size  KASM_HRTIM_Test1.elf 
+   text	   data	    bss	    dec	    hex	filename
+  64840	    476	  11256	  76572	  12b1c	KASM_HRTIM_Test1.elf
+Finished building: default.size.stdout
+ 
+16:56:07 **** Incremental Build of configuration Debug for project KASM_HRTIM_Test1 ****
+make -j16 all 
+arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m7 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32H750xx -c -I../Core/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
+arm-none-eabi-gcc -o "KASM_HRTIM_Test1.elf" @"objects.list"   -mcpu=cortex-m7 -T"C:\Akamai\KASM\KASM_HRTIM_Test1\STM32H750VBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="KASM_HRTIM_Test1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
+Finished building target: KASM_HRTIM_Test1.elf
+ 
+arm-none-eabi-size  KASM_HRTIM_Test1.elf 
+arm-none-eabi-objdump -h -S KASM_HRTIM_Test1.elf  > "KASM_HRTIM_Test1.list"
+   text	   data	    bss	    dec	    hex	filename
+  61824	    476	  11128	  73428	  11ed4	KASM_HRTIM_Test1.elf
 Finished building: default.size.stdout
  
 Finished building: KASM_HRTIM_Test1.list
