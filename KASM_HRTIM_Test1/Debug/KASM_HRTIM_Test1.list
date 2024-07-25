@@ -33,11 +33,11 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, READONLY, DEBUGGING, OCTETS
  14 .debug_macro  0003a430  00000000  00000000  00034a96  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 15 .debug_line   0001df68  00000000  00000000  0006eec6  2**0
+ 15 .debug_line   0001df66  00000000  00000000  0006eec6  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 16 .debug_str    0017d81e  00000000  00000000  0008ce2e  2**0
+ 16 .debug_str    0017d81e  00000000  00000000  0008ce2c  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 17 .comment      00000043  00000000  00000000  0020a64c  2**0
+ 17 .comment      00000043  00000000  00000000  0020a64a  2**0
                   CONTENTS, READONLY
  18 .debug_frame  00007694  00000000  00000000  0020a690  2**2
                   CONTENTS, READONLY, DEBUGGING, OCTETS
@@ -514,9 +514,9 @@ int main(void)
  800070e:	2108      	movs	r1, #8
  8000710:	4885      	ldr	r0, [pc, #532]	@ (8000928 <main+0x2a8>)
  8000712:	f003 fe6f 	bl	80043f4 <HAL_GPIO_WritePin>
+  			 *
+  			 */
   //End Timer 1
-
-
 
   //Timer 2
   HAL_TIM_Base_Start_IT(&htim2);
@@ -531,9 +531,9 @@ int main(void)
  8000726:	2110      	movs	r1, #16
  8000728:	487f      	ldr	r0, [pc, #508]	@ (8000928 <main+0x2a8>)
  800072a:	f003 fe63 	bl	80043f4 <HAL_GPIO_WritePin>
+    		 *
+    		 */
   //End Timer 2
-
-
 
   //Timer 4
   HAL_TIM_Base_Start_IT(&htim4);
@@ -575,9 +575,9 @@ int main(void)
  800077a:	f44f 5100 	mov.w	r1, #8192	@ 0x2000
  800077e:	486e      	ldr	r0, [pc, #440]	@ (8000938 <main+0x2b8>)
  8000780:	f003 fe38 	bl	80043f4 <HAL_GPIO_WritePin>
+      		   *
+      		   */
   //End Timer 4
-
-
 
   //Timer 5
   HAL_TIM_Base_Start_IT(&htim5);
@@ -601,9 +601,9 @@ int main(void)
  80007a8:	f44f 4100 	mov.w	r1, #32768	@ 0x8000
  80007ac:	4862      	ldr	r0, [pc, #392]	@ (8000938 <main+0x2b8>)
  80007ae:	f003 fe21 	bl	80043f4 <HAL_GPIO_WritePin>
+        	   *
         	   */
   //End Timer 5
-
 
   //Timer 8
   HAL_TIM_Base_Start_IT(&htim8);
@@ -618,9 +618,9 @@ int main(void)
  80007c2:	2180      	movs	r1, #128	@ 0x80
  80007c4:	4858      	ldr	r0, [pc, #352]	@ (8000928 <main+0x2a8>)
  80007c6:	f003 fe15 	bl	80043f4 <HAL_GPIO_WritePin>
+        	   *
         	   */
   //End Timer 8
-
 
   //Timer 12
   HAL_TIM_Base_Start_IT(&htim12);
@@ -635,9 +635,9 @@ int main(void)
  80007da:	f44f 7180 	mov.w	r1, #256	@ 0x100
  80007de:	4852      	ldr	r0, [pc, #328]	@ (8000928 <main+0x2a8>)
  80007e0:	f003 fe08 	bl	80043f4 <HAL_GPIO_WritePin>
+         	   *
          	   */
   //End Timer 12
-
 
   //Timer 13
   HAL_TIM_Base_Start_IT(&htim13);
@@ -652,9 +652,9 @@ int main(void)
  80007f4:	f44f 6180 	mov.w	r1, #1024	@ 0x400
  80007f8:	484b      	ldr	r0, [pc, #300]	@ (8000928 <main+0x2a8>)
  80007fa:	f003 fdfb 	bl	80043f4 <HAL_GPIO_WritePin>
+           	   *
            	   */
   //End Timer 13
-
 
   //Timer 14
   HAL_TIM_Base_Start_IT(&htim14);
@@ -669,9 +669,9 @@ int main(void)
  800080e:	f44f 5180 	mov.w	r1, #4096	@ 0x1000
  8000812:	4845      	ldr	r0, [pc, #276]	@ (8000928 <main+0x2a8>)
  8000814:	f003 fdee 	bl	80043f4 <HAL_GPIO_WritePin>
+           	   *
            	   */
   //End Timer 14
-
 
   //Timer 15
   HAL_TIM_Base_Start_IT(&htim15);
@@ -695,9 +695,9 @@ int main(void)
  800083c:	2101      	movs	r1, #1
  800083e:	4845      	ldr	r0, [pc, #276]	@ (8000954 <main+0x2d4>)
  8000840:	f003 fdd8 	bl	80043f4 <HAL_GPIO_WritePin>
+           	   *
            	   */
   //End Timer 15
-
 
   //Timer 16
   HAL_TIM_Base_Start_IT(&htim16);
@@ -712,8 +712,8 @@ int main(void)
  8000854:	2102      	movs	r1, #2
  8000856:	483f      	ldr	r0, [pc, #252]	@ (8000954 <main+0x2d4>)
  8000858:	f003 fdcc 	bl	80043f4 <HAL_GPIO_WritePin>
+               */
   //End Timer 16
-
 
   //HRTIM CODE GOES HERE *******
      // Enable output
@@ -727,9 +727,9 @@ int main(void)
  8000864:	4b3d      	ldr	r3, [pc, #244]	@ (800095c <main+0x2dc>)
  8000866:	f44f 12f0 	mov.w	r2, #1966080	@ 0x1e0000
  800086a:	601a      	str	r2, [r3, #0]
+              *
               */
   //END HRTIM CODE
-
 
   //Low-Power Timer
      HAL_LPTIM_Counter_Start_IT(&hlptim1, LPTIM_ARR_ARR);
@@ -750,7 +750,7 @@ int main(void)
  800088e:	4b35      	ldr	r3, [pc, #212]	@ (8000964 <main+0x2e4>)
  8000890:	f642 62df 	movw	r2, #11999	@ 0x2edf
  8000894:	619a      	str	r2, [r3, #24]
-       	     *
+       	    //End UART Transmit
        	     */
   //End Low Power Timer
 
@@ -799,11 +799,7 @@ int main(void)
  80008d4:	4b23      	ldr	r3, [pc, #140]	@ (8000964 <main+0x2e4>)
  80008d6:	2200      	movs	r2, #0
  80008d8:	61da      	str	r2, [r3, #28]
-       	        	HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), 10);
 
-       	        	sprintf(buffer, "LPTIM Count: %d \n\r", LPTIM1->CNT);
-       	        	HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), 10);
-*/
    gen_sine();
  80008da:	f001 fd19 	bl	8002310 <gen_sine>
 
@@ -816,7 +812,6 @@ int main(void)
  80008e0:	681b      	ldr	r3, [r3, #0]
  80008e2:	4618      	mov	r0, r3
  80008e4:	f001 fa63 	bl	8001dae <init_buffer>
-
    HAL_UART_Receive_IT(&huart4, rx_buff, sizeof(rx_buff));
  80008e8:	2201      	movs	r2, #1
  80008ea:	4929      	ldr	r1, [pc, #164]	@ (8000990 <main+0x310>)
@@ -825,7 +820,7 @@ int main(void)
 
   while (1)
   {
-	  if(ctrl_tmr_expired == TRUE) control_update(ref); //Sets flag for timer inturrupt
+	  if(ctrl_tmr_expired == TRUE) control_update(ref); 	//Sets flag for timer inturrupt
  80008f2:	4b29      	ldr	r3, [pc, #164]	@ (8000998 <main+0x318>)
  80008f4:	781b      	ldrb	r3, [r3, #0]
  80008f6:	2b01      	cmp	r3, #1
@@ -834,19 +829,19 @@ int main(void)
  80008fc:	ed93 7b00 	vldr	d7, [r3]
  8000900:	eeb0 0b47 	vmov.f64	d0, d7
  8000904:	f001 fb10 	bl	8001f28 <control_update>
-	  if(data_ready == TRUE) UART_update(); //Sets flag when a message is received
+	  if(data_ready == TRUE) UART_update(); 	//Sets flag when a message is received
  8000908:	4b25      	ldr	r3, [pc, #148]	@ (80009a0 <main+0x320>)
  800090a:	781b      	ldrb	r3, [r3, #0]
  800090c:	2b01      	cmp	r3, #1
  800090e:	d101      	bne.n	8000914 <main+0x294>
  8000910:	f001 f9c6 	bl	8001ca0 <UART_update>
-	  if(cmd_ready == TRUE) command_update(); //Sets flag once message is ready to send
+	  if(cmd_ready == TRUE) command_update(); 	//Sets flag once message is ready to send
  8000914:	4b23      	ldr	r3, [pc, #140]	@ (80009a4 <main+0x324>)
  8000916:	781b      	ldrb	r3, [r3, #0]
  8000918:	2b01      	cmp	r3, #1
  800091a:	d1ea      	bne.n	80008f2 <main+0x272>
  800091c:	f001 f9f4 	bl	8001d08 <command_update>
-	  if(ctrl_tmr_expired == TRUE) control_update(ref); //Sets flag for timer inturrupt
+	  if(ctrl_tmr_expired == TRUE) control_update(ref); 	//Sets flag for timer inturrupt
  8000920:	e7e7      	b.n	80008f2 <main+0x272>
  8000922:	bf00      	nop
  8000924:	24000310 	.word	0x24000310
@@ -4938,7 +4933,7 @@ static void control_update(double ref)
  8002286:	b29a      	uxth	r2, r3
  8002288:	4b08      	ldr	r3, [pc, #32]	@ (80022ac <control_update+0x384>)
  800228a:	615a      	str	r2, [r3, #20]
-
+		//End LPTIM1
 
 	}
 
