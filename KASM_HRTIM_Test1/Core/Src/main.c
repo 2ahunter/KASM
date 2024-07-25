@@ -18,11 +18,11 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-
+#include "stdio.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <math.h>
-//#include <stdio.h>
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,6 +48,12 @@
 #define PERIOD_SCALE (1.0/24000)
 #define TICK_SCALE (1.0/240000000)
 
+//Defines for circular buffer
+#define BUFFER_LENGTH 2048
+#define MESSAGE_LENGTH 128
+
+//Define for command length to populate command array
+#define CMD_LENGTH 5
 
 /* USER CODE END PD */
 
@@ -84,7 +90,7 @@ static double ref=0;// reference (input) for control loop
 static double sine_vals[SIN_PERIOD] = {0};
 
 
-//Variables for UART Output
+//Variables for UART Output to Check Initialization Times
 static long long int sys_timer = 0;
 char message[64] = {'\0'};
 
@@ -105,10 +111,30 @@ char message[64] = {'\0'};
 		 return TIM1->CNT + sys_timer;
 	  }
 
-//This one works for just outputting one line, without timer count
-/*
-uint8_t tx_buffer[27] = "Initialization Complete: ";
-*/
+
+//Flag for UART Transmit and Receive
+		static uint8_t data_ready = FALSE;
+
+		struct circular_buffer {
+		    int read_index;
+		    int write_index;
+		    int size;
+		    unsigned char data[BUFFER_LENGTH];
+		}; /*circular  buffer */
+
+		struct circular_buffer rx_buffer; /*Circular UART RX buffer */
+		struct circular_buffer *rxp = &rx_buffer;
+
+		//static int8_t rx_collision = FALSE;
+		static int8_t reading_rx_buffer = FALSE;
+
+		//Used to echo elements in circular buffer back to putty
+		uint8_t circ_buff_message[BUFFER_LENGTH]= {'\0'};
+		static int8_t index = 0;
+
+		//Flags and arrays to send a command ready flag
+		static uint8_t cmd_ready = FALSE;
+		static uint8_t num = 0;
 
 
 /* USER CODE END PV */
@@ -134,10 +160,25 @@ static void MX_UART4_Init(void);
 static void control_update(double ref);
 static uint16_t calc_dutycycle(double v_in, double vss);
 static void gen_sine(void);
+
+//Flags used for UART Communication
+void UART_update();
+void command_update();
+
+static void init_buffer(struct circular_buffer *buf);
+static int8_t is_buffer_empty(struct circular_buffer *buf);
+static int8_t is_buffer_full(struct circular_buffer *buf);
+static int8_t write_buffer(struct circular_buffer *buf, unsigned char c);
+static unsigned char read_from_buffer(struct circular_buffer *buf);
+static int get_num_elements(struct circular_buffer *buf);
+
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+//Variables to test UART Receive & Transmission with IT
+	static uint8_t rx_buff[1];
 
 /* USER CODE END 0 */
 
@@ -215,8 +256,6 @@ int main(void)
   			 */
   //End Timer 1
 
-
-
   //Timer 2
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
@@ -236,8 +275,6 @@ int main(void)
     		 *
     		 */
   //End Timer 2
-
-
 
   //Timer 4
   HAL_TIM_Base_Start_IT(&htim4);
@@ -265,8 +302,6 @@ int main(void)
       		   */
   //End Timer 4
 
-
-
   //Timer 5
   HAL_TIM_Base_Start_IT(&htim5);
   HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_2);
@@ -289,7 +324,6 @@ int main(void)
         	   */
   //End Timer 5
 
-
   //Timer 8
   HAL_TIM_Base_Start_IT(&htim8);
   HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_4);
@@ -302,7 +336,6 @@ int main(void)
         	   *
         	   */
   //End Timer 8
-
 
   //Timer 12
   HAL_TIM_Base_Start_IT(&htim12);
@@ -317,7 +350,6 @@ int main(void)
          	   */
   //End Timer 12
 
-
   //Timer 13
   HAL_TIM_Base_Start_IT(&htim13);
   HAL_TIM_PWM_Start(&htim13, TIM_CHANNEL_1);
@@ -331,7 +363,6 @@ int main(void)
            	   */
   //End Timer 13
 
-
   //Timer 14
   HAL_TIM_Base_Start_IT(&htim14);
   HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1);
@@ -344,7 +375,6 @@ int main(void)
            	   *
            	   */
   //End Timer 14
-
 
   //Timer 15
   HAL_TIM_Base_Start_IT(&htim15);
@@ -361,7 +391,6 @@ int main(void)
            	   */
   //End Timer 15
 
-
   //Timer 16
   HAL_TIM_Base_Start_IT(&htim16);
   HAL_TIM_PWM_Start(&htim16, TIM_CHANNEL_1);
@@ -374,7 +403,6 @@ int main(void)
                *
                */
   //End Timer 16
-
 
   //HRTIM CODE GOES HERE *******
      // Enable output
@@ -391,7 +419,6 @@ int main(void)
               */
   //END HRTIM CODE
 
-
   //Low-Power Timer
      HAL_LPTIM_Counter_Start_IT(&hlptim1, LPTIM_ARR_ARR);
      HAL_LPTIM_PWM_Start(&hlptim1, LPTIM_ARR_ARR, LPTIM_CMP_CMP);
@@ -402,7 +429,6 @@ int main(void)
        	    sprintf(message, "LPTIM Init: %d \n\r", read_TIM1());
        	    HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
        	    //End UART Transmit
-       	     *
        	     */
   //End Low Power Timer
 
@@ -419,45 +445,21 @@ int main(void)
        	    TIM16->CNT = 0;
        	    LPTIM1->CNT = 0;
 
-/*
-       	    		sprintf(buffer, "Tim2 Count: %d \n\r", TIM2->CNT);
-       	        	HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), 10);
-
-       	        	sprintf(buffer, "Tim4 Count: %d \n\r", TIM4->CNT);
-       	        	HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), 10);
-
-       	        	sprintf(buffer, "Tim5 Count: %d \n\r", TIM5->CNT);
-       	        	HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), 10);
-
-       	        	sprintf(buffer, "Tim8 Count: %d \n\r", TIM8->CNT);
-       	        	HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), 10);
-
-       	        	sprintf(buffer, "Tim12 Count: %d \n\r", TIM12->CNT);
-       	        	HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), 10);
-
-       	        	sprintf(buffer, "Tim13 Count: %d \n\r", TIM13->CNT);
-       	        	HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), 10);
-
-       	        	sprintf(buffer, "Tim14 Count: %d \n\r", TIM14->CNT);
-       	        	HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), 10);
-
-       	        	sprintf(buffer, "Tim15 Count: %d \n\r", TIM15->CNT);
-       	        	HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), 10);
-
-       	        	sprintf(buffer, "Tim16 Count: %d \n\r", TIM16->CNT);
-       	        	HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), 10);
-
-       	        	sprintf(buffer, "LPTIM Count: %d \n\r", LPTIM1->CNT);
-       	        	HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), 10);
-*/
    gen_sine();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+   init_buffer(rxp);
+   HAL_UART_Receive_IT(&huart4, rx_buff, sizeof(rx_buff));
+
   while (1)
   {
-	  if(ctrl_tmr_expired == TRUE) control_update(ref);
+	  if(ctrl_tmr_expired == TRUE) control_update(ref); 	//Sets flag for timer inturrupt
+	  if(data_ready == TRUE) UART_update(); 	//Sets flag when a message is received
+	  if(cmd_ready == TRUE) command_update(); 	//Sets flag once message is ready to send
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -1449,7 +1451,7 @@ static void MX_UART4_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN UART4_Init 2 */
-
+  UART4->CR1 |= (USART_CR1_TE|USART_CR1_RXNEIE|USART_CR1_RE|USART_CR1_UE);
   /* USER CODE END UART4_Init 2 */
 
 }
@@ -1558,6 +1560,134 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	}
 
 }
+
+/*Writes commands into the circular buffer as they are sent,
+once the elements is equal to the command length, a flag is sent*/
+void UART_update(){
+
+			write_buffer(rxp, UART4->RDR);
+
+			num=get_num_elements(rxp);
+			if(num == CMD_LENGTH){
+				cmd_ready = TRUE;
+			}
+
+	HAL_UART_Receive_IT(&huart4, rx_buff, sizeof(rx_buff));
+	data_ready = FALSE;
+}
+
+/*Function that is called once the number of elements in the buffer
+is equal to the command length. Fills elements into an array to print */
+void command_update(){
+	for(index = 0; index <= CMD_LENGTH ; index ++){
+		 circ_buff_message[index] = read_from_buffer(rxp);;
+	 }
+	HAL_UART_Transmit(&huart4, circ_buff_message, sizeof(circ_buff_message), HAL_MAX_DELAY);
+
+	cmd_ready = FALSE;
+}
+
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef*huart)
+{
+	data_ready = TRUE;
+}
+
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef*huart)
+{
+ __NOP();
+}
+
+
+unsigned char get_char(void) {
+    unsigned char c;
+    if (is_buffer_empty(rxp) == FALSE) {
+        reading_rx_buffer = TRUE; /*set buffer access flag*/
+        c = read_from_buffer(rxp);
+        reading_rx_buffer = FALSE;
+        return c;
+    }
+    return 0; /*no data available*/
+}
+
+
+static void init_buffer(struct circular_buffer *buf) {
+    int i;
+    buf->read_index = 0; /*initialize read index to 0 */
+    buf->write_index = 0; /*initialize write index to 0 */
+    buf->size = BUFFER_LENGTH; /*Set size to buffer length const*/
+    for (i = 0; i < BUFFER_LENGTH; i++) { /*initialize data to zero*/
+        buf->data[i] = 0;
+    } /*end for */
+}
+
+
+/* function int is_buffer_empty(struct circular_buffer *buf)
+ * takes a pointer to a circular buffer and compares the read and write indices
+ * if they are equal then the buffer is empty
+ */
+static int8_t is_buffer_empty(struct circular_buffer *buf) {
+    if (buf->read_index == buf->write_index) { //if read = write then the buffer is empty
+        return TRUE;
+    }
+    return FALSE;
+}
+
+/*  bufFull(struct oBuffer *buf)
+ * takes a pointer to a circular buffer and compares the read and write indices
+ * if write+1 = read, then the buffer is full.
+ */
+static int8_t is_buffer_full(struct circular_buffer *buf) {
+    /* write index +1 == read index is full,  the mod provides wrap around*/
+    if ((buf->write_index + 1) % BUFFER_LENGTH == buf->read_index) {
+        return TRUE;
+    }
+    return FALSE;
+}
+
+/* writeBuffer( (struct oBuffer *buf, unsigned char c)
+ * takes a pointer to a circular buffer and a char to be written
+ * returns SUCCESS or ERROR
+ */
+static int8_t write_buffer(struct circular_buffer *buf, unsigned char c) {
+    if (is_buffer_full(buf) == FALSE) {
+        buf->data[buf->write_index] = c;
+        /*increment the write index and wrap using modulus arithmetic */
+        buf->write_index = (buf->write_index + 1) % BUFFER_LENGTH;
+        return SUCCESS;
+    }
+    return ERROR; /*no data written*/
+}
+
+/*int readBuffer(struct oBuffer *buf)
+ * takes a pointer to a circular buffer
+ * returns the value from the buffer
+ * the read index is incremented and wrapped using modulus arithmetic
+ * Returns 0 if the buffer is empty or the pointer is invalid
+ */
+static unsigned char read_from_buffer(struct circular_buffer *buf) {
+    unsigned char val;
+    if (is_buffer_empty(buf) == FALSE) {
+        val = buf->data[buf->read_index]; //get the char from the buffer
+        /*increment the read index and wrap using modulus arithmetic*/
+        buf->read_index = (buf->read_index + 1) % BUFFER_LENGTH;
+        return val;
+    }
+    return 0;
+}
+
+static int get_num_elements(struct circular_buffer *buf) {
+    if (buf != NULL) {
+        if (buf->write_index < buf->read_index) { /*test for wrap around*/
+            return (buf->write_index + BUFFER_LENGTH - buf->read_index);
+        } else {
+            return (buf->write_index - buf->read_index);
+        }
+    }
+    return 0;
+}
+
 
 static void control_update(double ref)
 {
@@ -1760,8 +1890,6 @@ static void control_update(double ref)
 		LPTIM1->CMP = dutycycle/2;
 		//End LPTIM1
 
-
-
 	}
 
 	// reset timer flag
@@ -1795,6 +1923,7 @@ static void gen_sine(void)
 		sine_vals[i] = sin(i*scale);
 	}
 }
+
 
 /* USER CODE END 4 */
 
