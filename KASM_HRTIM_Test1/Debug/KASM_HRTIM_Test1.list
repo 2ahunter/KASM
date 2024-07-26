@@ -23,25 +23,25 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   ALLOC
   9 .ARM.attributes 0000002e  00000000  00000000  000121e0  2**0
                   CONTENTS, READONLY
- 10 .debug_info   0001cff3  00000000  00000000  0001220e  2**0
+ 10 .debug_info   0001d0b5  00000000  00000000  0001220e  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 11 .debug_abbrev 00002e30  00000000  00000000  0002f201  2**0
+ 11 .debug_abbrev 00002e45  00000000  00000000  0002f2c3  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 12 .debug_aranges 000017b0  00000000  00000000  00032038  2**3
+ 12 .debug_aranges 000017b8  00000000  00000000  00032108  2**3
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 13 .debug_rnglists 000012ae  00000000  00000000  000337e8  2**0
+ 13 .debug_rnglists 000012b5  00000000  00000000  000338c0  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 14 .debug_macro  0003a430  00000000  00000000  00034a96  2**0
+ 14 .debug_macro  0003a430  00000000  00000000  00034b75  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 15 .debug_line   0001df66  00000000  00000000  0006eec6  2**0
+ 15 .debug_line   0001dff4  00000000  00000000  0006efa5  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 16 .debug_str    0017d81e  00000000  00000000  0008ce2c  2**0
+ 16 .debug_str    0017d8c4  00000000  00000000  0008cf99  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 17 .comment      00000043  00000000  00000000  0020a64a  2**0
+ 17 .comment      00000043  00000000  00000000  0020a85d  2**0
                   CONTENTS, READONLY
- 18 .debug_frame  00007694  00000000  00000000  0020a690  2**2
+ 18 .debug_frame  000076b8  00000000  00000000  0020a8a0  2**2
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 19 .debug_line_str 0000004e  00000000  00000000  00211d24  2**0
+ 19 .debug_line_str 0000004e  00000000  00000000  00211f58  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
 
 Disassembly of section .text:
@@ -3967,7 +3967,7 @@ once the elements is equal to the command length, a flag is sent*/
 void UART_update(){
  8001ca0:	b580      	push	{r7, lr}
  8001ca2:	af00      	add	r7, sp, #0
-
+	//Original UART Receive and Transmit Test
 			write_buffer(rxp, UART4->RDR);
  8001ca4:	4b11      	ldr	r3, [pc, #68]	@ (8001cec <UART_update+0x4c>)
  8001ca6:	681b      	ldr	r3, [r3, #0]
@@ -3990,13 +3990,16 @@ void UART_update(){
 			if(num == CMD_LENGTH){
  8001cc8:	4b0a      	ldr	r3, [pc, #40]	@ (8001cf4 <UART_update+0x54>)
  8001cca:	781b      	ldrb	r3, [r3, #0]
- 8001ccc:	2b05      	cmp	r3, #5
+ 8001ccc:	2b36      	cmp	r3, #54	@ 0x36
  8001cce:	d102      	bne.n	8001cd6 <UART_update+0x36>
 				cmd_ready = TRUE;
  8001cd0:	4b09      	ldr	r3, [pc, #36]	@ (8001cf8 <UART_update+0x58>)
  8001cd2:	2201      	movs	r2, #1
  8001cd4:	701a      	strb	r2, [r3, #0]
-			}
+	c = UART4->RDR;
+
+	run_state_machine(c);
+*/
 
 	HAL_UART_Receive_IT(&huart4, rx_buff, sizeof(rx_buff));
  8001cd6:	2201      	movs	r2, #1
@@ -4026,6 +4029,7 @@ is equal to the command length. Fills elements into an array to print */
 void command_update(){
  8001d08:	b598      	push	{r3, r4, r7, lr}
  8001d0a:	af00      	add	r7, sp, #0
+
 	for(index = 0; index <= CMD_LENGTH ; index ++){
  8001d0c:	4b15      	ldr	r3, [pc, #84]	@ (8001d64 <command_update+0x5c>)
  8001d0e:	2200      	movs	r2, #0
@@ -4054,7 +4058,7 @@ void command_update(){
  8001d3e:	701a      	strb	r2, [r3, #0]
  8001d40:	4b08      	ldr	r3, [pc, #32]	@ (8001d64 <command_update+0x5c>)
  8001d42:	f993 3000 	ldrsb.w	r3, [r3]
- 8001d46:	2b05      	cmp	r3, #5
+ 8001d46:	2b36      	cmp	r3, #54	@ 0x36
  8001d48:	dde4      	ble.n	8001d14 <command_update+0xc>
 	 }
 	HAL_UART_Transmit(&huart4, circ_buff_message, sizeof(circ_buff_message), HAL_MAX_DELAY);
@@ -4078,6 +4082,8 @@ void command_update(){
  8001d74:	24003605 	.word	0x24003605
 
 08001d78 <HAL_UART_RxCpltCallback>:
+}
+
 
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef*huart)

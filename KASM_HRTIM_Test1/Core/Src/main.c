@@ -53,7 +53,7 @@
 #define MESSAGE_LENGTH 128
 
 //Define for command length to populate command array
-#define CMD_LENGTH 5
+#define CMD_LENGTH 27*2
 
 /* USER CODE END PD */
 
@@ -111,7 +111,6 @@ char message[64] = {'\0'};
 		 return TIM1->CNT + sys_timer;
 	  }
 
-
 //Flag for UART Transmit and Receive
 		static uint8_t data_ready = FALSE;
 
@@ -135,6 +134,32 @@ char message[64] = {'\0'};
 		//Flags and arrays to send a command ready flag
 		static uint8_t cmd_ready = FALSE;
 		static uint8_t num = 0;
+
+//Creating a reference array for output commands
+		typedef enum cmd_ref{T1C1 = 0,T1C2, T1C3, T1C4,
+					T2C1,
+					T4C1, T4C2, T4C3, T4C4,
+					T5C2, T5C3,
+					T8C4,
+					T12C2,
+					T13C1,
+					T14C1,
+					T15C1, T15C2,
+					T16C1,
+					HRA1, HRA2, HRB1, HRB2, HRC1, HRC2, HRD1, HRD2,
+					LPTIM} channel;
+
+		typedef enum UART_receive_state{
+			startByte1,
+			startByte2,
+			storeMessage,
+			endByte1,
+			endByte2,
+			messageReady
+		}state;
+
+		uint8_t start_bytes[2] = {1, 128};
+		uint8_t end_bytes[2] = {255, 127};
 
 
 /* USER CODE END PV */
@@ -164,6 +189,7 @@ static void gen_sine(void);
 //Flags used for UART Communication
 void UART_update();
 void command_update();
+static void run_state_machine(uint8_t byte);
 
 static void init_buffer(struct circular_buffer *buf);
 static int8_t is_buffer_empty(struct circular_buffer *buf);
@@ -1564,13 +1590,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 /*Writes commands into the circular buffer as they are sent,
 once the elements is equal to the command length, a flag is sent*/
 void UART_update(){
-
+	//Original UART Receive and Transmit Test
 			write_buffer(rxp, UART4->RDR);
 
 			num=get_num_elements(rxp);
 			if(num == CMD_LENGTH){
 				cmd_ready = TRUE;
 			}
+	/*
+	uint8_t c;
+	c = UART4->RDR;
+
+	run_state_machine(c);
+*/
 
 	HAL_UART_Receive_IT(&huart4, rx_buff, sizeof(rx_buff));
 	data_ready = FALSE;
@@ -1579,6 +1611,7 @@ void UART_update(){
 /*Function that is called once the number of elements in the buffer
 is equal to the command length. Fills elements into an array to print */
 void command_update(){
+
 	for(index = 0; index <= CMD_LENGTH ; index ++){
 		 circ_buff_message[index] = read_from_buffer(rxp);;
 	 }
@@ -1586,6 +1619,61 @@ void command_update(){
 
 	cmd_ready = FALSE;
 }
+
+
+static void run_state_machine(uint8_t byte)
+{
+	static int current_state = startByte1;
+	static int counter = 0;
+	int next_state;
+
+	switch(current_state){
+		case startByte1:
+			if(byte == start_bytes[0]){
+				next_state = startByte2;
+			} else{
+				next_state = current_state;
+			}
+			break;
+		case(startByte2):
+			if(byte == start_bytes[1]){
+				next_state = storeMessage;
+				counter = 0;
+			} else{
+				next_state = startByte1;
+			}
+			break;
+		case(storeMessage):
+			if(counter == CMD_LENGTH){
+				next_state = endByte1;
+			}else{
+			next_state = storeMessage;
+			}
+			write_buffer(rxp, UART4->RDR);
+			counter++;
+			break;
+		case(endByte1):
+			if(byte == end_bytes[0]){
+				next_state = endByte2;
+			}else{
+				next_state = startByte1;
+			}
+			break;
+		case(endByte2):
+			if(byte == end_bytes[1]){
+				cmd_ready = TRUE;
+			}else{
+			rxp->read_index = 0;
+			rxp->write_index = 0;
+			}
+			next_state = startByte1;
+			break;
+		default:
+			break;
+	}
+	current_state = next_state;
+}
+
 
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef*huart)
