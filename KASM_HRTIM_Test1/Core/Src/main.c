@@ -49,11 +49,11 @@
 #define TICK_SCALE (1.0/240000000)
 
 //Defines for circular buffer
-#define BUFFER_LENGTH 2048
-#define MESSAGE_LENGTH 128
+#define BUFFER_LENGTH 100
+#define MESSAGE_LENGTH 100
 
 //Define for command length to populate command array
-#define CMD_LENGTH 5
+#define CMD_LENGTH 27*2
 
 /* USER CODE END PD */
 
@@ -1564,8 +1564,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 /*Writes commands into the circular buffer as they are sent,
 once the elements is equal to the command length, a flag is sent*/
 void UART_update(){
-
-			write_buffer(rxp, UART4->RDR);
+			uint8_t c;
+			c = UART4->RDR;
+			write_buffer(rxp, c);
 
 			num=get_num_elements(rxp);
 			if(num == CMD_LENGTH){
@@ -1579,10 +1580,14 @@ void UART_update(){
 /*Function that is called once the number of elements in the buffer
 is equal to the command length. Fills elements into an array to print */
 void command_update(){
+
+	int n;
+	n = get_num_elements(rxp);
+
 	for(index = 0; index <= CMD_LENGTH ; index ++){
-		 circ_buff_message[index] = read_from_buffer(rxp);;
+		 circ_buff_message[index] = read_from_buffer(rxp);
 	 }
-	HAL_UART_Transmit(&huart4, circ_buff_message, sizeof(circ_buff_message), HAL_MAX_DELAY);
+	HAL_UART_Transmit(&huart4, circ_buff_message, sizeof(circ_buff_message), 10);
 
 	cmd_ready = FALSE;
 }
