@@ -6,8 +6,10 @@
 		<item key="wholeword" value="false"/>
 		<item key="incremental" value="false"/>
 		<item key="isRegEx" value="false"/>
-		<item key="selection" value="PeriodElapsedCallback"/>
+		<item key="selection" value="ctrl_tmr_expired"/>
 		<list key="findhistory">
+			<item value="ctrl_tmr_expired"/>
+			<item value="control_update"/>
 			<item value="PeriodElapsedCallback"/>
 			<item value="UART_IRQHandler"/>
 			<item value="IRQHandler"/>
