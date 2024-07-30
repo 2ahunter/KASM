@@ -6,8 +6,12 @@
 		<item key="wholeword" value="false"/>
 		<item key="incremental" value="false"/>
 		<item key="isRegEx" value="false"/>
-		<item key="selection" value="ctrl_tmr_expired"/>
+		<item key="selection" value="num"/>
 		<list key="findhistory">
+			<item value="num"/>
+			<item value="cmd_bytes_array"/>
+			<item value="circ_buff_message"/>
+			<item value="message"/>
 			<item value="ctrl_tmr_expired"/>
 			<item value="control_update"/>
 			<item value="PeriodElapsedCallback"/>
@@ -16,6 +20,8 @@
 			<item value="ONESEC"/>
 		</list>
 		<list key="replacehistory">
+			<item value="cmd_bytes"/>
+			<item value="cmd_bytes_array"/>
 		</list>
 	</section>
 	<section name="org.eclipse.ui.texteditor.FindReplaceDialog_dialogBounds">

@@ -42,17 +42,15 @@
 #endif
 #define TWO_PI (2*M_PI)
 
-//#define ONESEC 10000
-
-//Used for producing UART output in time-scale instead of timer ticks
+//Converts timer ticks to time-scale
 #define PERIOD_SCALE (1.0/24000)
 #define TICK_SCALE (1.0/240000000)
 
-//Defines for circular buffer
+//Circular buffer characteristics
 #define BUFFER_LENGTH 2048
 #define MESSAGE_LENGTH 128
 
-//Define for command length to populate command array
+//Parameters for sorting/storing actuator commands
 #define CMD_LENGTH 27*2
 #define NUM_ACTUATORS 27
 /* USER CODE END PD */
@@ -89,11 +87,9 @@ uint8_t ctrl_tmr_expired = FALSE; //controller update flag
 static double ref=0;// reference (input) for control loop
 static double sine_vals[SIN_PERIOD] = {0};
 
-
-//Variables for UART Output to Check Initialization Times
+/*Use for checking initialization times over UART
 static long long int sys_timer = 0;
 char message[64] = {'\0'};
-
 
 //Counter for UART Output in Time-Scale
 	static long int period_ticks = 0;
@@ -110,10 +106,12 @@ char message[64] = {'\0'};
 		//return TIM1->CNT;
 		 return TIM1->CNT + sys_timer;
 	  }
+*/
 
 //Flag for UART Transmit and Receive
 		static uint8_t data_ready = FALSE;
 
+//Circular Buffer Elements
 		struct circular_buffer {
 		    int read_index;
 		    int write_index;
@@ -127,13 +125,12 @@ char message[64] = {'\0'};
 		//static int8_t rx_collision = FALSE;
 		static int8_t reading_rx_buffer = FALSE;
 
-		//Used to echo elements in circular buffer back to putty
-		uint8_t circ_buff_message[BUFFER_LENGTH]= {'\0'};
+//Buffer storing elements from circular buffer
+		static int16_t cmd_bytes[BUFFER_LENGTH]= {0};
 		static int16_t index = 0;
 
-		//Flags and arrays to send a command ready flag
+//Flags and arrays to send a command ready flag
 		static uint8_t cmd_ready = FALSE;
-		static uint8_t num = 0;
 
 //Creating a reference for output commands
 		enum output{T1C1 = 0,T1C2, T1C3, T1C4,
@@ -151,6 +148,7 @@ char message[64] = {'\0'};
 
 		static int16_t cmd_ref[NUM_ACTUATORS] = {0};
 
+//State meachine elements
 		typedef enum UART_receive_state{
 			startByte1,
 			startByte2,
@@ -268,7 +266,8 @@ int main(void)
   HAL_GPIO_WritePin(TIM1_CH2_PH_GPIO_Port, TIM1_CH2_PH_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(TIM1_CH3_PH_GPIO_Port, TIM1_CH3_PH_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(TIM1_CH4_PH_GPIO_Port, TIM1_CH4_PH_Pin, GPIO_PIN_SET);
-/*
+
+  	  	  	/* Example of how to check Initialization time, timer count, and period counts over UART
 			//Timer 1 Init. Message Over UART
 			sprintf(message, "Tim1 Init: %d \n\r", read_TIM1());
 			HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
@@ -288,20 +287,6 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
   HAL_GPIO_WritePin(TIM2_CH1_PH_GPIO_Port, TIM2_CH1_PH_Pin, GPIO_PIN_SET);
-/*
-  	  	  	//Timer 2 Init. Message Over UART
-  			sprintf(message, "Tim2 Init: %d \n\r", read_TIM1());
-  			HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-
-  	  	  	sprintf(buffer, "Tim2 sec: %e \n\r", read_TIM1_sec());
-    		HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
-    		sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
-    		HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
-    		sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
-    		HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
-    		//End UART Transmit
-    		 *
-    		 */
   //End Timer 2
 
   //Timer 4
@@ -314,20 +299,6 @@ int main(void)
   HAL_GPIO_WritePin(TIM4_CH2_PH_GPIO_Port, TIM4_CH2_PH_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(TIM4_CH3_PH_GPIO_Port, TIM4_CH3_PH_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(TIM4_CH4_PH_GPIO_Port, TIM4_CH4_PH_Pin, GPIO_PIN_SET);
-/*
-  	  	  	  //Timer 4 Init. Message Over UART
-    		  sprintf(message, "Tim4 Init: %d \n\r", read_TIM1());
-    		  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-
-  	  	  	  sprintf(buffer, "Tim4 sec: %e \n\r", read_TIM1_sec());
-      		  HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
-      		  sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
-      		  HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
-      		  sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
-      		  HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
-      		  //End UART Transmit
-      		   *
-      		   */
   //End Timer 4
 
   //Timer 5
@@ -336,72 +307,30 @@ int main(void)
   HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3);
   HAL_GPIO_WritePin(TIM5_CH2_PH_GPIO_Port, TIM5_CH2_PH_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(TIM5_CH3_PH_GPIO_Port, TIM5_CH3_PH_Pin, GPIO_PIN_SET);
-/*
-  	  	  	  //Timer 5 Init. Message Over UART
-      		  sprintf(message, "Tim5 Init: %d \n\r", read_TIM1());
-      		  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-
-  	  	  	  sprintf(buffer, "Tim5 sec: %e \n\r", read_TIM1_sec());
-        	  HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
-        	  sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
-        	  HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
-        	  sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
-        	  HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
-        	  //End UART Transmit
-        	   *
-        	   */
   //End Timer 5
 
   //Timer 8
   HAL_TIM_Base_Start_IT(&htim8);
   HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_4);
   HAL_GPIO_WritePin(TIM8_CH4_PH_GPIO_Port, TIM8_CH4_PH_Pin, GPIO_PIN_SET);
-/*
-  	  	  	  //Timer 8 Init. Message Over UART
-        	  sprintf(message, "Tim8 Init: %d \n\r", read_TIM1());
-        	  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-        	  //End UART Transmit
-        	   *
-        	   */
   //End Timer 8
 
   //Timer 12
   HAL_TIM_Base_Start_IT(&htim12);
   HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
   HAL_GPIO_WritePin(TIM12_CH2_PH_GPIO_Port, TIM12_CH2_PH_Pin, GPIO_PIN_SET);
-/*
-  	  	  	  //Timer 12 Init. Message Over UART
-         	  sprintf(message, "Tim12 Init: %d \n\r", read_TIM1());
-         	  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-         	  //End UART Transmit
-         	   *
-         	   */
   //End Timer 12
 
   //Timer 13
   HAL_TIM_Base_Start_IT(&htim13);
   HAL_TIM_PWM_Start(&htim13, TIM_CHANNEL_1);
   HAL_GPIO_WritePin(TIM13_CH1_PH_GPIO_Port, TIM13_CH1_PH_Pin, GPIO_PIN_SET);
-/*
-  	  	  	  //Timer 13 Init. Message Over UART
-           	  sprintf(message, "Tim13 Init: %d \n\r", read_TIM1());
-           	  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-           	  //End UART Transmit
-           	   *
-           	   */
   //End Timer 13
 
   //Timer 14
   HAL_TIM_Base_Start_IT(&htim14);
   HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1);
   HAL_GPIO_WritePin(TIM14_CH1_PH_GPIO_Port, TIM14_CH1_PH_Pin, GPIO_PIN_SET);
-/*
-  	  	  	  //Timer 14 Init. Message Over UART
-           	  sprintf(message, "Tim14 Init: %d \n\r", read_TIM1());
-           	  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-           	  //End UART Transmit
-           	   *
-           	   */
   //End Timer 14
 
   //Timer 15
@@ -410,26 +339,12 @@ int main(void)
   HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_2);
   HAL_GPIO_WritePin(TIM15_CH1_PH_GPIO_Port, TIM15_CH1_PH_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(TIM15_CH2_PH_GPIO_Port, TIM15_CH2_PH_Pin, GPIO_PIN_SET);
-/*
-  	  	  	  //Timer 15 Init. Message Over UART
-           	  sprintf(message, "Tim15 Init: %d \n\r", read_TIM1());
-           	  HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-           	  //End UART Transmit\
-           	   *
-           	   */
   //End Timer 15
 
   //Timer 16
   HAL_TIM_Base_Start_IT(&htim16);
   HAL_TIM_PWM_Start(&htim16, TIM_CHANNEL_1);
   HAL_GPIO_WritePin(TIM16_CH1_PH_GPIO_Port, TIM16_CH1_PH_Pin, GPIO_PIN_SET);
-/*
-  	  	  	  //Timer 16 Init. Message Over UART
-              sprintf(message, "Tim16 Init: %d \n\r", read_TIM1());
-              HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-              //End UART Transmit
-               *
-               */
   //End Timer 16
 
   //HRTIM CODE GOES HERE *******
@@ -438,13 +353,6 @@ int main(void)
      	 	HRTIM_OENR_TB1OEN + HRTIM_OENR_TB2OEN + HRTIM_OENR_TC1OEN + HRTIM_OENR_TC2OEN + HRTIM_OENR_TD1OEN + HRTIM_OENR_TD2OEN;
      //Start Timer
      HRTIM1->sMasterRegs.MCR = HRTIM_MCR_TACEN + HRTIM_MCR_TBCEN + HRTIM_MCR_TCCEN + HRTIM_MCR_TDCEN;
-/*
-     	 	 //HRTIM Init. Message Over UART
-             sprintf(message, "HRTIM Init: %d \n\r", read_TIM1());
-             HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-             //End UART Transmit
-              *
-              */
   //END HRTIM CODE
 
   //Low-Power Timer
@@ -452,12 +360,6 @@ int main(void)
      HAL_LPTIM_PWM_Start(&hlptim1, LPTIM_ARR_ARR, LPTIM_CMP_CMP);
      HAL_GPIO_WritePin(LPTIM1_OUT_PH_GPIO_Port, LPTIM1_OUT_PH_Pin, GPIO_PIN_SET);
        	LPTIM1->ARR = (12000-1);
-/*
-       		//LPTIM Init. Message Over UART
-       	    sprintf(message, "LPTIM Init: %d \n\r", read_TIM1());
-       	    HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-       	    //End UART Transmit
-       	     */
   //End Low Power Timer
 
        	    //Timer Synchronization
@@ -484,9 +386,9 @@ int main(void)
 
   while (1)
   {
-	  if(ctrl_tmr_expired == TRUE) control_update(ref); 	//Sets flag for timer inturrupt
-	  if(data_ready == TRUE) UART_update(); 	//Sets flag when a message is received
-	  if(cmd_ready == TRUE) command_update(); 	//Sets flag once message is ready to send
+	  if(ctrl_tmr_expired == TRUE) control_update(ref); //Sets flag for timer interrupt
+	  if(data_ready == TRUE) UART_update(); //Sets flag when a message is received
+	  if(cmd_ready == TRUE) command_update(); //Sets flag once message is ready to send
 
     /* USER CODE END WHILE */
 
@@ -1567,12 +1469,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	const int period = 10; // number of timer rollovers between updates
 	const double step = 0.3;// max step size in volts
 
-	//Used to account for period in time clicks for UART Output
+	/*//Used to account for period in time clicks for UART Output
 		sys_timer+= 24000;
-
-	//Used to account for period in time-scale for UART Output
 		period_ticks ++;
-
+	*/
 
     if (htim==&htim1){
     	t+=1;
@@ -1592,15 +1492,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 /*Writes commands into the circular buffer as they are sent,
 once the elements is equal to the command length, a flag is sent*/
 void UART_update(){
-	//Original UART Receive and Transmit Test
-			/*
-			write_buffer(rxp, UART4->RDR);
 
-			num=get_num_elements(rxp);
-			if(num == CMD_LENGTH){
-				cmd_ready = TRUE;
-			}
-			*/
 	uint8_t c;
 	c = UART4->RDR;
 
@@ -1615,14 +1507,14 @@ is equal to the command length. Fills elements into an array to print */
 void command_update(){
 
 	for(index = 0; index <= CMD_LENGTH ; index ++){
-		 circ_buff_message[index] = read_from_buffer(rxp);
+		 cmd_bytes[index] = read_from_buffer(rxp);
 	 }
 
 	for(index = 0; index <= NUM_ACTUATORS ; index ++){
-		cmd_ref[index] = (circ_buff_message[(2*index)+1]<<8|circ_buff_message[2*index]);
+		cmd_ref[index] = (cmd_bytes[(2*index)+1]<<8|cmd_bytes[2*index]);
 	}
 
-		//HAL_UART_Transmit(&huart4, (uint8_t*)cmd_ref, sizeof(cmd_ref), 10);
+		HAL_UART_Transmit(&huart4, cmd_bytes, sizeof(cmd_bytes), 10);
 
 	cmd_ready = FALSE;
 }
@@ -1790,7 +1682,7 @@ static void control_update(double ref)
 	static int phase=GPIO_PIN_SET;
 	//int new_phase = {0};
 	static uint16_t dutycycle=0;
-	uint16_t new_dc;
+	//uint16_t new_dc;
 	double absref = 0;
 
 
@@ -1827,8 +1719,6 @@ static void control_update(double ref)
 			}
 				HAL_GPIO_WritePin(TIM1_CH4_PH_GPIO_Port, TIM1_CH4_PH_Pin, phase);
 	//End Timer 1
-
-
 
 	//Timer 2
 		// set the sign of the move (phase)
@@ -2053,8 +1943,6 @@ static void control_update(double ref)
 				HAL_GPIO_WritePin(LPTIM1_OUT_PH_GPIO_Port, LPTIM1_OUT_PH_Pin, phase);
     //End low power timer
 
-
-
 //	}
 
 	//Timer 1
@@ -2082,6 +1970,7 @@ static void control_update(double ref)
 	dutycycle = calc_dutycycle(absref,VSS);
 		TIM2->CCR1 = dutycycle;
 	//End Timer 2
+
 
 	//Timer 4
 	absref = fabs(cmd_ref[T4C1]); // duty cycle must be positive
@@ -2207,7 +2096,6 @@ static void control_update(double ref)
 	dutycycle = calc_dutycycle(absref,VSS);
 		LPTIM1->CMP = dutycycle/2;
 	//End LPTIM1
-
 
 	// reset timer flag
 	ctrl_tmr_expired = FALSE;
