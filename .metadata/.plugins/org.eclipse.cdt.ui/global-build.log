@@ -1,7 +1,121 @@
-16:08:48 **** Incremental Build of configuration Debug for project KASM_HRTIM_Test1 ****
+11:53:36 **** Incremental Build of configuration Debug for project KASM_HRTIM_Test1 ****
 make -j16 all 
+arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m7 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32H750xx -c -I../Core/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
+../Core/Src/main.c:150:48: warning: character constant too long for its type
+  150 |                 static uint8_t fin_buff[16] = {'Ref Populated'};
+      |                                                ^~~~~~~~~~~~~~~
+../Core/Src/main.c:150:48: warning: unsigned conversion from 'int' to 'unsigned char' changes value from '1635018084' to '100' [-Woverflow]
+../Core/Src/main.c:1668:12: warning: 'get_num_elements' defined but not used [-Wunused-function]
+ 1668 | static int get_num_elements(struct circular_buffer *buf) {
+      |            ^~~~~~~~~~~~~~~~
+arm-none-eabi-gcc -o "KASM_HRTIM_Test1.elf" @"objects.list"   -mcpu=cortex-m7 -T"C:\Akamai\KASM\KASM_HRTIM_Test1\STM32H750VBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="KASM_HRTIM_Test1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
+Finished building target: KASM_HRTIM_Test1.elf
+ 
 arm-none-eabi-size  KASM_HRTIM_Test1.elf 
+arm-none-eabi-objdump -h -S KASM_HRTIM_Test1.elf  > "KASM_HRTIM_Test1.list"
    text	   data	    bss	    dec	    hex	filename
-  68192	    488	  17344	  86024	  15008	KASM_HRTIM_Test1.elf
+  68584	    504	  17344	  86432	  151a0	KASM_HRTIM_Test1.elf
 Finished building: default.size.stdout
+ 
+Finished building: KASM_HRTIM_Test1.list
+ 
+11:54:14 **** Incremental Build of configuration Debug for project KASM_HRTIM_Test1 ****
+make -j16 all 
+arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m7 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32H750xx -c -I../Core/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
+../Core/Src/main.c:150:48: warning: character constant too long for its type
+  150 |                 static int16_t fin_buff[64] = {'Ref Populated'};
+      |                                                ^~~~~~~~~~~~~~~
+../Core/Src/main.c:150:48: warning: overflow in conversion from 'int' to 'short int' changes value from '1635018084' to '25956' [-Woverflow]
+../Core/Src/main.c:1668:12: warning: 'get_num_elements' defined but not used [-Wunused-function]
+ 1668 | static int get_num_elements(struct circular_buffer *buf) {
+      |            ^~~~~~~~~~~~~~~~
+arm-none-eabi-gcc -o "KASM_HRTIM_Test1.elf" @"objects.list"   -mcpu=cortex-m7 -T"C:\Akamai\KASM\KASM_HRTIM_Test1\STM32H750VBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="KASM_HRTIM_Test1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
+Finished building target: KASM_HRTIM_Test1.elf
+ 
+arm-none-eabi-size  KASM_HRTIM_Test1.elf 
+arm-none-eabi-objdump -h -S KASM_HRTIM_Test1.elf  > "KASM_HRTIM_Test1.list"
+   text	   data	    bss	    dec	    hex	filename
+  68584	    616	  17344	  86544	  15210	KASM_HRTIM_Test1.elf
+Finished building: default.size.stdout
+ 
+Finished building: KASM_HRTIM_Test1.list
+ 
+12:00:48 **** Incremental Build of configuration Debug for project KASM_HRTIM_Test1 ****
+make -j16 all 
+arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m7 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32H750xx -c -I../Core/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
+../Core/Src/main.c: In function 'command_update':
+../Core/Src/main.c:1518:44: warning: passing argument 2 of 'HAL_UART_Transmit' from incompatible pointer type [-Wincompatible-pointer-types]
+ 1518 |                 HAL_UART_Transmit(&huart4, cmd_bytes, sizeof(cmd_bytes), 10);
+      |                                            ^~~~~~~~~
+      |                                            |
+      |                                            int16_t * {aka short int *}
+In file included from ../Core/Inc/stm32h7xx_hal_conf.h:463,
+                 from ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h:29,
+                 from ../Core/Inc/main.h:30,
+                 from ../Core/Src/main.c:20:
+../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_uart.h:1637:79: note: expected 'const uint8_t *' {aka 'const unsigned char *'} but argument is of type 'int16_t *' {aka 'short int *'}
+ 1637 | HAL_StatusTypeDef HAL_UART_Transmit(UART_HandleTypeDef *huart, const uint8_t *pData, uint16_t Size, uint32_t Timeout);
+      |                                                                ~~~~~~~~~~~~~~~^~~~~
+../Core/Src/main.c: At top level:
+../Core/Src/main.c:1668:12: warning: 'get_num_elements' defined but not used [-Wunused-function]
+ 1668 | static int get_num_elements(struct circular_buffer *buf) {
+      |            ^~~~~~~~~~~~~~~~
+arm-none-eabi-gcc -o "KASM_HRTIM_Test1.elf" @"objects.list"   -mcpu=cortex-m7 -T"C:\Akamai\KASM\KASM_HRTIM_Test1\STM32H750VBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="KASM_HRTIM_Test1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
+Finished building target: KASM_HRTIM_Test1.elf
+ 
+arm-none-eabi-size  KASM_HRTIM_Test1.elf 
+arm-none-eabi-objdump -h -S KASM_HRTIM_Test1.elf  > "KASM_HRTIM_Test1.list"
+   text	   data	    bss	    dec	    hex	filename
+  68576	    488	  17344	  86408	  15188	KASM_HRTIM_Test1.elf
+Finished building: default.size.stdout
+ 
+Finished building: KASM_HRTIM_Test1.list
+ 
+12:03:56 **** Incremental Build of configuration Debug for project KASM_HRTIM_Test1 ****
+make -j16 all 
+arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m7 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32H750xx -c -I../Core/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
+../Core/Src/main.c:1668:12: warning: 'get_num_elements' defined but not used [-Wunused-function]
+ 1668 | static int get_num_elements(struct circular_buffer *buf) {
+      |            ^~~~~~~~~~~~~~~~
+arm-none-eabi-gcc -o "KASM_HRTIM_Test1.elf" @"objects.list"   -mcpu=cortex-m7 -T"C:\Akamai\KASM\KASM_HRTIM_Test1\STM32H750VBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="KASM_HRTIM_Test1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
+Finished building target: KASM_HRTIM_Test1.elf
+ 
+arm-none-eabi-size  KASM_HRTIM_Test1.elf 
+arm-none-eabi-objdump -h -S KASM_HRTIM_Test1.elf  > "KASM_HRTIM_Test1.list"
+   text	   data	    bss	    dec	    hex	filename
+  68272	    488	  17344	  86104	  15058	KASM_HRTIM_Test1.elf
+Finished building: default.size.stdout
+ 
+Finished building: KASM_HRTIM_Test1.list
+ 
+12:05:59 **** Incremental Build of configuration Debug for project KASM_HRTIM_Test1 ****
+make -j16 all 
+arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m7 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32H750xx -c -I../Core/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
+../Core/Src/main.c: In function 'command_update':
+../Core/Src/main.c:1517:44: warning: passing argument 2 of 'HAL_UART_Transmit' from incompatible pointer type [-Wincompatible-pointer-types]
+ 1517 |                 HAL_UART_Transmit(&huart4, cmd_bytes, sizeof(cmd_bytes), 10);
+      |                                            ^~~~~~~~~
+      |                                            |
+      |                                            int16_t * {aka short int *}
+In file included from ../Core/Inc/stm32h7xx_hal_conf.h:463,
+                 from ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h:29,
+                 from ../Core/Inc/main.h:30,
+                 from ../Core/Src/main.c:20:
+../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_uart.h:1637:79: note: expected 'const uint8_t *' {aka 'const unsigned char *'} but argument is of type 'int16_t *' {aka 'short int *'}
+ 1637 | HAL_StatusTypeDef HAL_UART_Transmit(UART_HandleTypeDef *huart, const uint8_t *pData, uint16_t Size, uint32_t Timeout);
+      |                                                                ~~~~~~~~~~~~~~~^~~~~
+../Core/Src/main.c: At top level:
+../Core/Src/main.c:1667:12: warning: 'get_num_elements' defined but not used [-Wunused-function]
+ 1667 | static int get_num_elements(struct circular_buffer *buf) {
+      |            ^~~~~~~~~~~~~~~~
+arm-none-eabi-gcc -o "KASM_HRTIM_Test1.elf" @"objects.list"   -mcpu=cortex-m7 -T"C:\Akamai\KASM\KASM_HRTIM_Test1\STM32H750VBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="KASM_HRTIM_Test1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
+Finished building target: KASM_HRTIM_Test1.elf
+ 
+arm-none-eabi-size  KASM_HRTIM_Test1.elf 
+arm-none-eabi-objdump -h -S KASM_HRTIM_Test1.elf  > "KASM_HRTIM_Test1.list"
+   text	   data	    bss	    dec	    hex	filename
+  68576	    488	  17344	  86408	  15188	KASM_HRTIM_Test1.elf
+Finished building: default.size.stdout
+ 
+Finished building: KASM_HRTIM_Test1.list
  

@@ -183,7 +183,7 @@ static void MX_LPTIM1_Init(void);
 static void MX_UART4_Init(void);
 /* USER CODE BEGIN PFP */
 static void control_update(double ref);
-static uint16_t calc_dutycycle(double v_in, double vss);
+static uint16_t calc_dutycycle(uint16_t v_in, double vss);
 static void gen_sine(void);
 
 //Flags used for UART Communication
@@ -203,7 +203,7 @@ static int get_num_elements(struct circular_buffer *buf);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-//Variables to test UART Receive & Transmission with IT
+//UART Receive & Transmission with IT
 	static uint8_t rx_buff[1];
 
 /* USER CODE END 0 */
@@ -2102,7 +2102,7 @@ static void control_update(double ref)
 }
 
 
-static uint16_t calc_dutycycle(double cmd, double vss)
+static uint16_t calc_dutycycle(uint16_t cmd, double vss)
 {
 	//------------------------------//
 	//	@function calc_dutycycle(cmd, vss)
@@ -2112,8 +2112,10 @@ static uint16_t calc_dutycycle(double cmd, double vss)
 
 	// duty cycle variable
 	uint16_t dc={0};
+	double scale = 1.8/15000;
 
-	dc = (uint16_t)(cmd/vss * (double)PERIOD);
+
+	dc = (uint16_t)((cmd*scale)/vss * (double)PERIOD);
 	// keep the dutycycle within the period of the PWM signal
 	if(dc>PERIOD) dc = PERIOD;
 

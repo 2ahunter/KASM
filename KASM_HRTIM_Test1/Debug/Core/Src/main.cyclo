@@ -29,6 +29,6 @@
 ../Core/Src/main.c:1667:12:get_num_elements	3
 ../Core/Src/main.c:1679:13:control_update	28
 ../Core/Src/main.c:2105:17:calc_dutycycle	2
-../Core/Src/main.c:2123:13:gen_sine	2
-../Core/Src/main.c:2138:6:MPU_Config	1
-../Core/Src/main.c:2169:6:Error_Handler	1
+../Core/Src/main.c:2125:13:gen_sine	2
+../Core/Src/main.c:2140:6:MPU_Config	1
+../Core/Src/main.c:2171:6:Error_Handler	1
