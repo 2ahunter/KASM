@@ -28,6 +28,17 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32h7xx_hal.h"
+#include "stm32h7xx_ll_usart.h"
+#include "stm32h7xx_ll_rcc.h"
+#include "stm32h7xx_ll_bus.h"
+#include "stm32h7xx_ll_cortex.h"
+#include "stm32h7xx_ll_system.h"
+#include "stm32h7xx_ll_utils.h"
+#include "stm32h7xx_ll_pwr.h"
+#include "stm32h7xx_ll_gpio.h"
+#include "stm32h7xx_ll_dma.h"
+
+#include "stm32h7xx_ll_exti.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -117,6 +128,16 @@ void Error_Handler(void);
 #define TIM1_CH2_PH_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
+#define PERIOD 23999
+#define SIN_PERIOD 1000 // period of the sin wave in PWM update rates
+#define TRUE 1
+#define FALSE 0
+#define ONESEC 10000
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+#define TWO_PI (2*M_PI)
+
 
 /* USER CODE END Private defines */
 
