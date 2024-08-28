@@ -1597,7 +1597,7 @@ static void run_state_machine(uint8_t byte)
 		case(endByte2):
 			if(byte == end_bytes[1]){
 				cmd_ready = TRUE;
-				LL_USART_TransmitData8(UART4,1);
+				LL_USART_TransmitData8(UART4,1); // test when commands are actually interpreted correctly
 			}else{
 			rxp->read_index = 0;
 			rxp->write_index = 0;
