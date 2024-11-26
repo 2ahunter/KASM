@@ -37,12 +37,16 @@
 #define TRUE 1
 #define FALSE 0
 #define ONESEC 10000
+#define TWOSEC 20000
+#define TENSEC 100000
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 #define TWO_PI (2*M_PI)
+#define LEADFILTER
 
-#define ONESEC 10000
+
+
 
 /* USER CODE END PD */
 
@@ -1253,7 +1257,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		static int i=0;
 		static int dir=1;
 		static int phase = 1;
-		const double step = 0.075;// reference (arbitrary units)
+		const double step = 0.02;// reference (arbitrary units)
 
 		if (htim==&htim1){
 		  i+=1;
@@ -1275,8 +1279,11 @@ static void control_update(double ref)
 	  // sign bit of the command fed to phase input on the h-bridge
 	  int phase=0;
 	  uint16_t dutycycle=0;
-
+#ifdef LEADFILTER
 	  out = compute_out(ref) ;
+#else
+	  out = ref;
+#endif
 
 	  // set the sign of the move (phase)
 	  if(out <0)
@@ -1406,19 +1413,23 @@ static void gen_sine(void)
 
 
 double compute_out(double ref){
-    static double u[2]= {0};
+    static double u[3]= {0};
     // output buffer
-    static double y[2] = {0};
+    static double y[3] = {0};
     // lead filter numerator coefficients
-    const double a[2] = {1.00,-0.7181};
+    const double a[3] = {1.00,-1.721415952850116,0.740818220681718};
     // lead filter denominator coefficients
-    const double b[2]={6.3462,-6.0651};
+    const double b[3]={0, 0.655716809429977,-0.636314541598375};
     double out;
     // compute filter output
     u[0] = ref;
-    y[0] = -a[1]*y[1] +  b[0]*u[0] + b[1]*u[1];
+    //    y[0] = -a[1]*y[1] - a[2]*y[2] +  b[0]*u[0] + b[1]*u[1] +b[2]*u[2];
+    y[0] = -a[1]*y[1] - a[2]*y[2] +  b[0]*u[0] + b[1]*u[1] +b[2]*u[2];
+
     // update state
+    y[2] = y[1];
     y[1] = y[0];
+    u[2] = u[1];
     u[1] = u[0];
     out=y[0];
     return(out);
