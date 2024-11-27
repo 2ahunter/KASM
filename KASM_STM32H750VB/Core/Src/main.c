@@ -21,6 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "ldc1614.h"
 
 /* USER CODE END Includes */
 
@@ -50,6 +51,7 @@
 #define TRUE 1
 #define FALSE 0
 #define ONESEC 10000
+#define TWOSEC 20000
 
 /* USER CODE END PD */
 
@@ -133,6 +135,16 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+	int channel = 0;
+	int L_uH = 72;
+	int C_pF = 330;
+	volatile uint32_t readings[NSAMPS] = {0};
+	int ct = 0;
+	int cycle_count = 0;
+
+	uint8_t data[2] = {0};
+
+	LDC1614 dev;
 
   /* USER CODE END 1 */
 
@@ -188,8 +200,17 @@ int main(void)
   HAL_GPIO_WritePin(TIM1_CH3_PHASE_GPIO_Port, TIM1_CH3_PHASE_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(TIM1_CH4_PHASE_GPIO_Port, TIM1_CH4_PHASE_Pin, GPIO_PIN_SET);
 
+  //Timer 2 ch 4 is used as an oscillator for the eddy current sensor
+  HAL_TIM_Base_Start(&htim2);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
+
   // End Timer 1
 
+  ldc1614_init(&dev, &hi2c4, channel, L_uH, C_pF);
+
+
+  ldc1614_read_reg(&dev, LDC1614_DEVICE_ID, data);
+  ldc1614_read_reg(&dev, LDC1614_STATUS, data);
 
   /* USER CODE END 2 */
 
@@ -197,7 +218,26 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if(ctrl_tmr_expired == TRUE) control_update(ref);
+	  if(ctrl_tmr_expired == TRUE) {
+		  control_update(ref);
+		  cycle_count += 1;
+//		  if (cycle_count == 1000) {
+//			  cycle_count = 0; // reset cycle counter
+
+			  data[1] = 0;
+			  ldc1614_read_reg(&dev, LDC1614_STATUS, data); // check for new data
+			  if((data[1] & 0x08) !=0){ // if new data available
+				  readings[ct] = ldc1614_get_ch0_reading(&dev); // get a sample
+				  ct++; // increment sample counter
+			  }
+			  if(ct == NSAMPS) {
+				  ct = 0; // reset sample counter
+			  }
+//		  }
+
+	  }
+
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -766,7 +806,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4294967295;
+  htim2.Init.Period = 12;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
@@ -780,10 +820,15 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = 3;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.Pulse = 6;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
   }
@@ -806,6 +851,7 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 0 */
 
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 
@@ -815,9 +861,18 @@ static void MX_TIM4_Init(void)
   htim4.Instance = TIM4;
   htim4.Init.Prescaler = 0;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 65535;
+  htim4.Init.Period = 24000-1;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
   if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
   {
     Error_Handler();
@@ -1405,7 +1460,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 		static int i=0;
 		static int phase = 1;
-		const double step = 0.02;// setpoint reference (arbitrary units)
+		const double step = 0.2;// setpoint reference (arbitrary units)
 
 		if (htim==&htim1){
 		  i+=1;
