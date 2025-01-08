@@ -1460,7 +1460,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 		static int i=0;
 		static int phase = 1;
-		const double step = 0.2;// setpoint reference (arbitrary units)
+		const double step = 0.8;// setpoint reference (arbitrary units)
 
 		if (htim==&htim1){
 		  i+=1;

@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include "stm32h7xx_hal.h"
 
-#define NSAMPS 1000
+#define NSAMPS 200
 #define SAMP_DELAY 10
 
 #define leftshift(value,nbits) (((uint32_t)(value)) << (nbits))
