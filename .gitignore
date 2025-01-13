@@ -53,3 +53,4 @@ dkms.conf
 
 .metadata./
 .settings/
+.DS_store
