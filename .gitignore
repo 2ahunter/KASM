@@ -50,3 +50,9 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# STM32Cube and iOS junk
+.DS_Store
+.settings
+.metadata
+
