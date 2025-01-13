@@ -41,6 +41,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
+extern uint8_t recvd_byte;
+extern int data_ready;
 
 /* USER CODE END PV */
 
@@ -66,7 +68,6 @@ extern TIM_HandleTypeDef htim13;
 extern TIM_HandleTypeDef htim14;
 extern TIM_HandleTypeDef htim15;
 extern TIM_HandleTypeDef htim16;
-extern UART_HandleTypeDef huart4;
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -315,14 +316,18 @@ void TIM5_IRQHandler(void)
   */
 void UART4_IRQHandler(void)
 {
-  /* USER CODE BEGIN UART4_IRQn 0 */
+	/* USER CODE BEGIN UART4_IRQn 0 */
+	if(UART4->CR1 & USART_CR1_RXNEIE){
+		recvd_byte = UART4->RDR;
+		data_ready = TRUE;
+//		UART4->CR1 |= 0 << USART_CR1_RXNEIE;
+	}
 
   /* USER CODE END UART4_IRQn 0 */
-  HAL_UART_IRQHandler(&huart4);
   /* USER CODE BEGIN UART4_IRQn 1 */
 
   /* USER CODE END UART4_IRQn 1 */
-}
+ }
 
 /**
   * @brief This function handles LPTIM1 global interrupt.

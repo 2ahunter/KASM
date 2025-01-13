@@ -1,0 +1,4 @@
+../Core/Src/ldc1614.c:13:19:ldc1614_write_reg	1
+../Core/Src/ldc1614.c:26:19:ldc1614_read_reg	1
+../Core/Src/ldc1614.c:36:5:ldc1614_init	1
+../Core/Src/ldc1614.c:78:10:ldc1614_get_ch0_reading	1

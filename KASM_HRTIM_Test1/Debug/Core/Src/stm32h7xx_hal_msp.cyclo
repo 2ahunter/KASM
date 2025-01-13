@@ -7,5 +7,3 @@
 ../Core/Src/stm32h7xx_hal_msp.c:265:6:HAL_TIM_Base_MspInit	11
 ../Core/Src/stm32h7xx_hal_msp.c:414:6:HAL_TIM_MspPostInit	11
 ../Core/Src/stm32h7xx_hal_msp.c:650:6:HAL_TIM_Base_MspDeInit	11
-../Core/Src/stm32h7xx_hal_msp.c:845:6:HAL_UART_MspInit	3
-../Core/Src/stm32h7xx_hal_msp.c:895:6:HAL_UART_MspDeInit	2
