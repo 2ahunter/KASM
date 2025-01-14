@@ -51,14 +51,8 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
-<<<<<<< HEAD
 # STM32Cube and iOS junk
 .DS_Store
 .settings
 .metadata
 
-=======
-.metadata./
-.settings/
-.DS_Store
->>>>>>> main
