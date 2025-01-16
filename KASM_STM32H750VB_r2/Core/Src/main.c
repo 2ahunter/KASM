@@ -68,6 +68,15 @@ TIM_HandleTypeDef htim16;
 UART_HandleTypeDef huart4;
 
 /* USER CODE BEGIN PV */
+circular_buffer_t rxbuf; /* UART receive buffer */
+circular_buffer_t txbuf; /* UART transmit buffer */
+circular_buffer_t *rxbuf_p = &rxbuf; /* UART receive buffer */
+circular_buffer_t *txbuf_p = &txbuf; /* UART transmit buffer */
+
+/* initialize the buffers */
+init_buffer(rxbuf_p);
+init_buffer(txbuf_p);
+
 
 /* USER CODE END PV */
 
