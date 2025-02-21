@@ -18,11 +18,11 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "actuators.h"
-#include "circular_buffer.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "circular_buffer.h"
+#include "actuators.h"
 
 /* USER CODE END Includes */
 
@@ -33,6 +33,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define TRUE 1
+#define FALSE 0
 
 /* USER CODE END PD */
 
@@ -65,8 +68,6 @@ TIM_HandleTypeDef htim14;
 TIM_HandleTypeDef htim15;
 TIM_HandleTypeDef htim16;
 
-UART_HandleTypeDef huart4;
-
 /* USER CODE BEGIN PV */
 circular_buffer_t rxbuf; /* UART receive buffer */
 circular_buffer_t txbuf; /* UART transmit buffer */
@@ -77,6 +78,16 @@ circular_buffer_t *txbuf_p = &txbuf; /* UART transmit buffer */
 init_buffer(rxbuf_p);
 init_buffer(txbuf_p);
 
+/* UART flags and signals */
+static uint8_t recvd_byte = {0};
+static uint8_t byte_avail = FALSE;
+static int reading_rx_buffer = FALSE;
+
+/* Period timer flag */
+static uint8_t ctrl_tmr_expired = FALSE;
+
+/* Actuators reference vector */
+static int16_t cmd_ref[NUM_ACTUATORS] = {0};
 
 /* USER CODE END PV */
 
@@ -102,6 +113,9 @@ static void MX_TIM16_Init(void);
 static void MX_UART4_Init(void);
 static void MX_SPI6_Init(void);
 /* USER CODE BEGIN PFP */
+
+/* initialize all the timers */
+static void init_channels(void);
 
 /* USER CODE END PFP */
 
@@ -1240,37 +1254,75 @@ static void MX_UART4_Init(void)
 
   /* USER CODE END UART4_Init 0 */
 
+  LL_USART_InitTypeDef UART_InitStruct = {0};
+
+  LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+
+  /** Initializes the peripherals clock
+  */
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_UART4;
+  PeriphClkInitStruct.Usart234578ClockSelection = RCC_USART234578CLKSOURCE_D2PCLK1;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* Peripheral clock enable */
+  LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_UART4);
+
+  LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOC);
+  /**UART4 GPIO Configuration
+  PC10   ------> UART4_TX
+  PC11   ------> UART4_RX
+  */
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_10|LL_GPIO_PIN_11;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  GPIO_InitStruct.Alternate = LL_GPIO_AF_8;
+  LL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /* UART4 interrupt Init */
+  NVIC_SetPriority(UART4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
+  NVIC_EnableIRQ(UART4_IRQn);
+
   /* USER CODE BEGIN UART4_Init 1 */
 
   /* USER CODE END UART4_Init 1 */
-  huart4.Instance = UART4;
-  huart4.Init.BaudRate = 115200;
-  huart4.Init.WordLength = UART_WORDLENGTH_8B;
-  huart4.Init.StopBits = UART_STOPBITS_1;
-  huart4.Init.Parity = UART_PARITY_NONE;
-  huart4.Init.Mode = UART_MODE_TX_RX;
-  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart4.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart4.Init.ClockPrescaler = UART_PRESCALER_DIV1;
-  huart4.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart4) != HAL_OK)
+  UART_InitStruct.PrescalerValue = LL_USART_PRESCALER_DIV1;
+  UART_InitStruct.BaudRate = 115200;
+  UART_InitStruct.DataWidth = LL_USART_DATAWIDTH_8B;
+  UART_InitStruct.StopBits = LL_USART_STOPBITS_1;
+  UART_InitStruct.Parity = LL_USART_PARITY_NONE;
+  UART_InitStruct.TransferDirection = LL_USART_DIRECTION_TX_RX;
+  UART_InitStruct.HardwareFlowControl = LL_USART_HWCONTROL_NONE;
+  UART_InitStruct.OverSampling = LL_USART_OVERSAMPLING_16;
+  LL_USART_Init(UART4, &UART_InitStruct);
+  LL_USART_DisableFIFO(UART4);
+  LL_USART_SetTXFIFOThreshold(UART4, LL_USART_FIFOTHRESHOLD_1_8);
+  LL_USART_SetRXFIFOThreshold(UART4, LL_USART_FIFOTHRESHOLD_1_8);
+  LL_USART_ConfigAsyncMode(UART4);
+
+  /* USER CODE BEGIN WKUPType UART4 */
+
+  /* USER CODE END WKUPType UART4 */
+
+  LL_USART_Enable(UART4);
+
+  /* Polling UART4 initialisation */
+  while((!(LL_USART_IsActiveFlag_TEACK(UART4))) || (!(LL_USART_IsActiveFlag_REACK(UART4))))
   {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_SetTxFifoThreshold(&huart4, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_SetRxFifoThreshold(&huart4, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_UARTEx_DisableFifoMode(&huart4) != HAL_OK)
-  {
-    Error_Handler();
   }
   /* USER CODE BEGIN UART4_Init 2 */
+
+  /* CR1 register settings:
+   * TE = Transmitter enable
+   * RE = Receiver enable
+   * UE = USART enable
+   * RXNEIE = Receive data register not empty interrupt enable  */
+  UART4->CR1 |= (USART_CR1_TE|USART_CR1_RXNEIE|USART_CR1_RE|USART_CR1_UE);
 
   /* USER CODE END UART4_Init 2 */
 
@@ -1377,6 +1429,81 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/* initialize all the H bridge driver channels */
+static void init_channels(void){
+
+	/* Timer 1 driver channels and control timer */
+	/* Note that timer 1 is the period timer and is interrupt-driven */
+	HAL_TIM_Base_Start_IT(&htim1);
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
+	HAL_GPIO_WritePin(TIM1_CH1_PH_GPIO_Port, TIM1_CH1_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM1_CH2_PH_GPIO_Port, TIM1_CH2_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM1_CH3_PH_GPIO_Port, TIM1_CH3_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM1_CH4_PH_GPIO_Port, TIM1_CH4_PH_Pin, GPIO_PIN_SET);
+
+	/* Timer 2 channel  */
+	HAL_TIM_Base_Start(&htim2);
+	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+	HAL_GPIO_WritePin(TIM2_CH1_PH_GPIO_Port, TIM2_CH1_PH_Pin, GPIO_PIN_SET);
+
+	/* Timer 4 channels */
+	HAL_TIM_Base_Start(&htim4);
+	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
+	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4);
+	HAL_GPIO_WritePin(TIM4_CH1_PH_GPIO_Port, TIM4_CH1_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM4_CH2_PH_GPIO_Port, TIM4_CH2_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM4_CH3_PH_GPIO_Port, TIM4_CH3_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM4_CH4_PH_GPIO_Port, TIM4_CH4_PH_Pin, GPIO_PIN_SET);
+
+	/* Timer 5 channels */
+	HAL_TIM_Base_Start(&htim5);
+	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3);
+	HAL_GPIO_WritePin(TIM5_CH2_PH_GPIO_Port, TIM5_CH2_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM5_CH3_PH_GPIO_Port, TIM5_CH3_PH_Pin, GPIO_PIN_SET);
+
+	/* Timer 8 channel */
+	HAL_TIM_Base_Start(&htim8);
+	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_4);
+	HAL_GPIO_WritePin(TIM8_CH4_PH_GPIO_Port, TIM8_CH4_PH_Pin, GPIO_PIN_SET);
+
+	/* Timer 12 channel */
+	HAL_TIM_Base_Start(&htim12);
+	HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
+	HAL_GPIO_WritePin(TIM12_CH2_PH_GPIO_Port, TIM12_CH2_PH_Pin, GPIO_PIN_SET);
+
+	/* Timer 13 channel */
+	HAL_TIM_Base_Start(&htim13);
+	HAL_TIM_PWM_Start(&htim13, TIM_CHANNEL_1);
+	HAL_GPIO_WritePin(TIM13_CH1_PH_GPIO_Port, TIM13_CH1_PH_Pin, GPIO_PIN_SET);
+
+	/* Timer 14 channel */
+	HAL_TIM_Base_Start(&htim14);
+	HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1);
+	HAL_GPIO_WritePin(TIM14_CH1_PH_GPIO_Port, TIM14_CH1_PH_Pin, GPIO_PIN_SET);
+
+	/* Timer 15 channels */
+	HAL_TIM_Base_Start(&htim15);
+	HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_2);
+	HAL_GPIO_WritePin(TIM15_CH1_PH_GPIO_Port, TIM15_CH1_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM15_CH2_PH_GPIO_Port, TIM15_CH2_PH_Pin, GPIO_PIN_SET);
+
+	/* Timer 16 channel */
+	HAL_TIM_Base_Start(&htim16);
+	HAL_TIM_PWM_Start(&htim16, TIM_CHANNEL_1);
+	HAL_GPIO_WritePin(TIM16_CH1_PH_GPIO_Port, TIM16_CH1_PH_Pin, GPIO_PIN_SET);
+
+
+
+}
+
 
 /* USER CODE END 4 */
 
