@@ -31,6 +31,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define TRUE 1
+#define FALSE 0
 
 /* USER CODE END PD */
 
@@ -57,6 +59,8 @@
 /* External variables --------------------------------------------------------*/
 extern TIM_HandleTypeDef htim1;
 /* USER CODE BEGIN EV */
+extern uint8_t recvd_byte;
+extern uint8_t byte_avail;
 
 /* USER CODE END EV */
 

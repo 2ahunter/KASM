@@ -74,20 +74,17 @@ circular_buffer_t txbuf; /* UART transmit buffer */
 circular_buffer_t *rxbuf_p = &rxbuf; /* UART receive buffer */
 circular_buffer_t *txbuf_p = &txbuf; /* UART transmit buffer */
 
-/* initialize the buffers */
-init_buffer(rxbuf_p);
-init_buffer(txbuf_p);
 
 /* UART flags and signals */
-static uint8_t recvd_byte = {0};
-static uint8_t byte_avail = FALSE;
-static int reading_rx_buffer = FALSE;
+uint8_t recvd_byte = {0};
+uint8_t byte_avail = FALSE;
+int reading_rx_buffer = FALSE;
 
 /* Period timer flag */
-static uint8_t ctrl_tmr_expired = FALSE;
+uint8_t ctrl_tmr_expired = FALSE;
 
 /* Actuators reference vector */
-static int16_t cmd_ref[NUM_ACTUATORS] = {0};
+int16_t cmd_ref[NUM_ACTUATORS] = {0};
 
 /* USER CODE END PV */
 
@@ -114,13 +111,30 @@ static void MX_UART4_Init(void);
 static void MX_SPI6_Init(void);
 /* USER CODE BEGIN PFP */
 
-/* initialize all the timers */
+/**
+ * @function : handle_byte
+ * @brief : handles each byte sent to the UART4
+ * @param :  char c
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void handle_byte(uint8_t c);
+
+/**
+ * @function : init_channels
+ * @brief : initializes all the PWM channels
+ * @param :  none
+ * @return : none
+ * @author : Aaron Hunter
+ */
 static void init_channels(void);
+
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 
 /* USER CODE END 0 */
 
@@ -141,6 +155,10 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+
+  /* initialize the circular buffers */
+  init_buffer(rxbuf_p);
+  init_buffer(txbuf_p);
 
   /* USER CODE END Init */
 
@@ -172,6 +190,7 @@ int main(void)
   MX_UART4_Init();
   MX_SPI6_Init();
   /* USER CODE BEGIN 2 */
+  init_channels();
 
   /* USER CODE END 2 */
 
@@ -179,6 +198,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  if(byte_avail == TRUE){
+		  handle_byte(recvd_byte);
+	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -1429,8 +1451,32 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/**
+ * @function : handle_byte
+ * @brief : handles each byte sent to the UART4
+ * @param :  char c
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void handle_byte(uint8_t c){
+	// echo back out the serial port
+	LL_USART_TransmitData8(UART4, c);
+	// update state machine with the character
+	//run_state_machine(recvd_byte);
+	// Clear the flag
+	byte_avail = FALSE;
+	// restart the uart interrupt
+//	HAL_UART_Receive_IT(UART4, rx_buff, sizeof(rx_buff));
+}
 
-/* initialize all the H bridge driver channels */
+
+/**
+ * @function : init_channels
+ * @brief : initializes all the PWM channels
+ * @param :  none
+ * @return : none
+ * @author : Aaron Hunter
+ */
 static void init_channels(void){
 
 	/* Timer 1 driver channels and control timer */
@@ -1440,15 +1486,15 @@ static void init_channels(void){
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
-	HAL_GPIO_WritePin(TIM1_CH1_PH_GPIO_Port, TIM1_CH1_PH_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM1_CH2_PH_GPIO_Port, TIM1_CH2_PH_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM1_CH3_PH_GPIO_Port, TIM1_CH3_PH_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM1_CH4_PH_GPIO_Port, TIM1_CH4_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM1_CH1_PHASE_GPIO_Port, TIM1_CH1_PHASE_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM1_CH2_PHASE_GPIO_Port, TIM1_CH2_PHASE_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM1_CH3_PHASE_GPIO_Port, TIM1_CH3_PHASE_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM1_CH4_PHASE_GPIO_Port, TIM1_CH4_PHASE_Pin, GPIO_PIN_SET);
 
 	/* Timer 2 channel  */
 	HAL_TIM_Base_Start(&htim2);
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-	HAL_GPIO_WritePin(TIM2_CH1_PH_GPIO_Port, TIM2_CH1_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM2_CH1_PHASE_GPIO_Port, TIM2_CH1_PHASE_Pin, GPIO_PIN_SET);
 
 	/* Timer 4 channels */
 	HAL_TIM_Base_Start(&htim4);
@@ -1456,51 +1502,71 @@ static void init_channels(void){
 	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);
 	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
 	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4);
-	HAL_GPIO_WritePin(TIM4_CH1_PH_GPIO_Port, TIM4_CH1_PH_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM4_CH2_PH_GPIO_Port, TIM4_CH2_PH_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM4_CH3_PH_GPIO_Port, TIM4_CH3_PH_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM4_CH4_PH_GPIO_Port, TIM4_CH4_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM4_CH1_PHASE_GPIO_Port, TIM4_CH1_PHASE_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM4_CH2_PHASE_GPIO_Port, TIM4_CH2_PHASE_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM4_CH3_PHASE_GPIO_Port, TIM4_CH3_PHASE_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM4_CH4_PHASE_GPIO_Port, TIM4_CH4_PHASE_Pin, GPIO_PIN_SET);
 
 	/* Timer 5 channels */
 	HAL_TIM_Base_Start(&htim5);
 	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_2);
 	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3);
-	HAL_GPIO_WritePin(TIM5_CH2_PH_GPIO_Port, TIM5_CH2_PH_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM5_CH3_PH_GPIO_Port, TIM5_CH3_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM5_CH2_PHASE_GPIO_Port, TIM5_CH2_PHASE_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM5_CH3_PHASE_GPIO_Port, TIM5_CH3_PHASE_Pin, GPIO_PIN_SET);
 
 	/* Timer 8 channel */
 	HAL_TIM_Base_Start(&htim8);
 	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_4);
-	HAL_GPIO_WritePin(TIM8_CH4_PH_GPIO_Port, TIM8_CH4_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM8_CH4_PHASE_GPIO_Port, TIM8_CH4_PHASE_Pin, GPIO_PIN_SET);
 
 	/* Timer 12 channel */
 	HAL_TIM_Base_Start(&htim12);
 	HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
-	HAL_GPIO_WritePin(TIM12_CH2_PH_GPIO_Port, TIM12_CH2_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM12_CH2_PHASE_GPIO_Port, TIM12_CH2_PHASE_Pin, GPIO_PIN_SET);
 
 	/* Timer 13 channel */
 	HAL_TIM_Base_Start(&htim13);
 	HAL_TIM_PWM_Start(&htim13, TIM_CHANNEL_1);
-	HAL_GPIO_WritePin(TIM13_CH1_PH_GPIO_Port, TIM13_CH1_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM13_CH1_PHASE_GPIO_Port, TIM13_CH1_PHASE_Pin, GPIO_PIN_SET);
 
 	/* Timer 14 channel */
 	HAL_TIM_Base_Start(&htim14);
 	HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1);
-	HAL_GPIO_WritePin(TIM14_CH1_PH_GPIO_Port, TIM14_CH1_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM14_CH1_PHASE_GPIO_Port, TIM14_CH1_PHASE_Pin, GPIO_PIN_SET);
 
 	/* Timer 15 channels */
 	HAL_TIM_Base_Start(&htim15);
 	HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_2);
-	HAL_GPIO_WritePin(TIM15_CH1_PH_GPIO_Port, TIM15_CH1_PH_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM15_CH2_PH_GPIO_Port, TIM15_CH2_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM15_CH1_PHASE_GPIO_Port, TIM15_CH1_PHASE_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM15_CH2_PHASE_GPIO_Port, TIM15_CH2_PHASE_Pin, GPIO_PIN_SET);
 
 	/* Timer 16 channel */
 	HAL_TIM_Base_Start(&htim16);
 	HAL_TIM_PWM_Start(&htim16, TIM_CHANNEL_1);
-	HAL_GPIO_WritePin(TIM16_CH1_PH_GPIO_Port, TIM16_CH1_PH_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(TIM16_CH1_PHASE_GPIO_Port, TIM16_CH1_PHASE_Pin, GPIO_PIN_SET);
+
+	/* High Resolution Timer */
+	/* Enable outputs */
+	HRTIM1->sCommonRegs.OENR = HRTIM_OENR_TA1OEN + HRTIM_OENR_TA2OEN + HRTIM_OENR_TB1OEN + HRTIM_OENR_TB2OEN
+			+ HRTIM_OENR_TC1OEN + HRTIM_OENR_TC2OEN + HRTIM_OENR_TD1OEN + HRTIM_OENR_TD2OEN;
+	/* Start Timer */
+	HRTIM1->sMasterRegs.MCR = HRTIM_MCR_TACEN + HRTIM_MCR_TBCEN + HRTIM_MCR_TCCEN + HRTIM_MCR_TDCEN;
 
 
+	/* Synchronize all the timers by resetting the clocks to zero */
+	TIM1->CNT = 0;
+	TIM2->CNT = 0;
+	TIM4->CNT = 0;
+	TIM5->CNT = 0;
+	TIM8->CNT = 0;
+	TIM12->CNT = 0;
+	TIM13->CNT = 0;
+	TIM14->CNT = 0;
+	TIM15->CNT = 0;
+	TIM16->CNT = 0;
+	LPTIM1->CNT = 0;
+	// HRTIM1->CNT = 0; //Determine how to reset HRTimer clock
 
 }
 

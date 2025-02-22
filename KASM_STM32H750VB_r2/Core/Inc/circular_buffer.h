@@ -37,7 +37,7 @@ typedef struct circular_buffer {
  ******************************************************************************/
 
 /**
- * @function : init_buffer(circular_buffer *buf)
+ * @function : init_buffer(circular_buffer_t *buf)
  * @brief : initializes a circular buffer
  * @param :  reference to a circular buffer instance   
  * @return : none
@@ -46,7 +46,7 @@ typedef struct circular_buffer {
 void init_buffer(circular_buffer_t *buf);
 
 /**
- * @function : is_buffer_empty(circular_buffer *buf)
+ * @function : is_buffer_empty(circular_buffer_t *buf)
  * @brief : checks if the buffer is empty
  * @param :  reference to a circular buffer instance   
  * @return : 1 for True, 0 False

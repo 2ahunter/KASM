@@ -50,14 +50,14 @@ typedef enum actuators{
 /* each bit represents whether the channel is present */
 uint32_t  actuator_config = 0xFFFF >> (BITS - NUM_ACTUATORS);  /* by default enable all actuators */
 
-#define HAS_LDC 1
-
-#if HAS_LDC /* LDC uses Timer2 channel */
-
-int config_bitmask = ~(1<<TIM2_CH1); /* bitwise complement creates a mask with timer2 cleared */
-actuator_config = actuator_config & config_bitmask;
-
-#endif /* HAS_LDC */
+//#define HAS_LDC 1
+//
+//#if HAS_LDC /* LDC uses Timer2 channel */
+//
+//uint32_t config_bitmask = ~(1<<TIM2_CH1); /* bitwise complement creates a mask with timer2 cleared */
+//actuator_config = actuator_config & config_bitmask;
+//
+//#endif /* HAS_LDC */
 
 
 #endif /* INC_ACTUATORS_H_ */
