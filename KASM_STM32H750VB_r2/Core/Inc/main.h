@@ -84,8 +84,6 @@ void Error_Handler(void);
 #define TIM5_CH2_PHASE_GPIO_Port GPIOC
 #define TIM5_CH3_PHASE_Pin GPIO_PIN_15
 #define TIM5_CH3_PHASE_GPIO_Port GPIOC
-#define LDC1_INTB_Pin GPIO_PIN_3
-#define LDC1_INTB_GPIO_Port GPIOC
 #define TIM2_CH4_LDC_Pin GPIO_PIN_3
 #define TIM2_CH4_LDC_GPIO_Port GPIOA
 #define LDC0_INTB_Pin GPIO_PIN_4
