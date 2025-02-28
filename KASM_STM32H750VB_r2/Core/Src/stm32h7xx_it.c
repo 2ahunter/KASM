@@ -22,6 +22,7 @@
 #include "stm32h7xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "circular_buffer.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -59,9 +60,16 @@
 /* External variables --------------------------------------------------------*/
 extern TIM_HandleTypeDef htim1;
 /* USER CODE BEGIN EV */
+
+/* UART flags and signals */
 extern uint8_t recvd_byte;
 extern uint8_t byte_avail;
-
+extern circular_buffer_t *rxbuf_p; /* UART receive buffer pointer */
+extern circular_buffer_t *txbuf_p; /* UART transmit buffer pointer  */
+extern int reading_rx_buffer;
+extern int writing_tx_buffer;
+extern int tx_collision;
+extern int rx_collision;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -223,9 +231,28 @@ void UART4_IRQHandler(void)
 {
   /* USER CODE BEGIN UART4_IRQn 0 */
 
+	/* handle RX interrupt */
 	if (UART4->CR1 & USART_CR1_RXNEIE) {
-		recvd_byte = UART4->RDR;
-		byte_avail = TRUE;
+		if(UART4->ISR & USART_ISR_RXNE_RXFNE){
+			recvd_byte = UART4->RDR;
+			byte_avail = TRUE;
+		}
+	}
+	/* handle TX interrupt */
+	if (UART4->CR1 & USART_CR1_TXEIE){
+		HAL_GPIO_TogglePin(LED0_GPIO_Port, LED0_Pin);
+		if (UART4->ISR & USART_ISR_TXE_TXFNF){
+			if (writing_tx_buffer == TRUE){ // buffer is being written into
+				tx_collision = TRUE;
+				UART4->CR1 &= ~USART_CR1_TXEIE; // disable interrupt. It is re-enabled in UART_send()
+			}
+			else if(is_buffer_empty(txbuf_p)){ // no characters to transmit
+				UART4->CR1 &= ~USART_CR1_TXEIE; //disable interrupt -- no data to transmit
+			}
+			else {
+				UART4->TDR = read_buffer(txbuf_p); // load the transmit data register with the value from the buffer
+			}
+		}
 	}
 
   /* USER CODE END UART4_IRQn 0 */

@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include "circular_buffer.h"
 #include "actuators.h"
+#include "stdio.h"
 
 /* USER CODE END Includes */
 
@@ -36,6 +37,7 @@
 
 #define TRUE 1
 #define FALSE 0
+#define BUFFER_SIZE 80
 
 /* USER CODE END PD */
 
@@ -79,6 +81,9 @@ circular_buffer_t *txbuf_p = &txbuf; /* UART transmit buffer */
 uint8_t recvd_byte = {0};
 uint8_t byte_avail = FALSE;
 int reading_rx_buffer = FALSE;
+int writing_tx_buffer = FALSE;
+int tx_collision = FALSE;
+int rx_collision = FALSE;
 
 /* Period timer flag */
 uint8_t ctrl_tmr_expired = FALSE;
@@ -119,6 +124,16 @@ static void MX_SPI6_Init(void);
  * @author : Aaron Hunter
  */
 static void handle_byte(uint8_t c);
+
+/**
+ * @function : UART_send(char* buf, int length)
+ * @brief : writes a buffer to the tx_buffer and triggers a UART TX
+ * @param : buffer pointer
+ * @param : buffer length
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void UART_send(char* buf, int length);
 
 /**
  * @function : init_channels
@@ -190,7 +205,13 @@ int main(void)
   MX_UART4_Init();
   MX_SPI6_Init();
   /* USER CODE BEGIN 2 */
+  uint8_t msg[BUFFER_SIZE];
+  int msg_length = 0;
+
   init_channels();
+  msg_length = sprintf((char *) msg,"KASM Application Beginning \r\n");
+  UART_send((char *) msg, msg_length);
+
 
   /* USER CODE END 2 */
 
@@ -1399,26 +1420,17 @@ static void MX_UART4_Init(void)
   LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_UART4);
 
   LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOC);
-  LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOB);
   /**UART4 GPIO Configuration
+  PC10   ------> UART4_TX
   PC11   ------> UART4_RX
-  PB9   ------> UART4_TX
   */
-  GPIO_InitStruct.Pin = LL_GPIO_PIN_11;
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_10|LL_GPIO_PIN_11;
   GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
   GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
   GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
   GPIO_InitStruct.Alternate = LL_GPIO_AF_8;
   LL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  GPIO_InitStruct.Pin = LL_GPIO_PIN_9;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
-  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-  GPIO_InitStruct.Alternate = LL_GPIO_AF_8;
-  LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* UART4 interrupt Init */
   NVIC_SetPriority(UART4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
@@ -1582,22 +1594,41 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 /**
  * @function : handle_byte
- * @brief : handles each byte sent to the UART4
- * @param :  char c
+ * @brief : writes a byte from UART4 into the rx buffer
  * @return : none
  * @author : Aaron Hunter
  */
 static void handle_byte(uint8_t c){
+	write_buffer(rxbuf_p, c);
+
 	// echo back out the serial port
 	LL_USART_TransmitData8(UART4, c);
-	// update state machine with the character
-	//run_state_machine(recvd_byte);
-	// Clear the flag
+	HAL_GPIO_TogglePin(LED0_GPIO_Port, LED0_Pin);
+
 	byte_avail = FALSE;
-	// restart the uart interrupt
-//	HAL_UART_Receive_IT(UART4, rx_buff, sizeof(rx_buff));
+
 }
 
+/**
+ * @function : UART_send(char* buf, int length)
+ * @brief : writes a buffer to the tx_buffer and triggers a UART TX
+ * @param : buffer pointer
+ * @param : buffer length
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void UART_send(char* buf, int length){
+	int i;
+	writing_tx_buffer = TRUE;  // block the TX interrupt while writing data to the buffer
+	for (i = 0; i < length; i++){
+		write_buffer(txbuf_p, buf[i]);
+	}
+	writing_tx_buffer = FALSE;
+	/* enable interrupt to transmit message over the UART */
+	if(tx_collision == TRUE) tx_collision = FALSE;
+	UART4->CR1 |= USART_CR1_TXEIE;
+//	HAL_GPIO_TogglePin(LED0_GPIO_Port, LED0_Pin);
+}
 
 /**
  * @function : init_channels
