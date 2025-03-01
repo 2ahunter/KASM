@@ -62,14 +62,13 @@ extern TIM_HandleTypeDef htim1;
 /* USER CODE BEGIN EV */
 
 /* UART flags and signals */
-extern uint8_t recvd_byte;
-extern uint8_t byte_avail;
 extern circular_buffer_t *rxbuf_p; /* UART receive buffer pointer */
 extern circular_buffer_t *txbuf_p; /* UART transmit buffer pointer  */
 extern int reading_rx_buffer;
 extern int writing_tx_buffer;
 extern int tx_collision;
 extern int rx_collision;
+extern int message_ready;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -234,8 +233,14 @@ void UART4_IRQHandler(void)
 	/* handle RX interrupt */
 	if (UART4->CR1 & USART_CR1_RXNEIE) {
 		if(UART4->ISR & USART_ISR_RXNE_RXFNE){
-			recvd_byte = UART4->RDR;
-			byte_avail = TRUE;
+			if(reading_rx_buffer == TRUE) {
+				UART4->CR1 &= ~USART_CR1_RXNEIE; // disable interrupt it will be enabled in main
+				rx_collision = TRUE;// notify collision
+			} else {
+				uint8_t byte = UART4->RDR;
+				write_buffer(rxbuf_p, byte); // add character to rx buffer
+				if(byte == '\r') message_ready = TRUE;
+			}
 		}
 	}
 	/* handle TX interrupt */

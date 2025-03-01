@@ -78,8 +78,10 @@ circular_buffer_t *txbuf_p = &txbuf; /* UART transmit buffer */
 
 
 /* UART flags and signals */
-uint8_t recvd_byte = {0};
-uint8_t byte_avail = FALSE;
+//uint8_t recvd_byte = {0};
+//uint8_t byte_avail = FALSE;
+int message_ready = FALSE;
+char msg_buffer[BUFFER_LENGTH];
 int reading_rx_buffer = FALSE;
 int writing_tx_buffer = FALSE;
 int tx_collision = FALSE;
@@ -117,13 +119,13 @@ static void MX_SPI6_Init(void);
 /* USER CODE BEGIN PFP */
 
 /**
- * @function : handle_byte
- * @brief : handles each byte sent to the UART4
- * @param :  char c
+ * @function : UART_parse_message
+ * @brief : reads the message from the rx buffer and puts it into module level message buffer
+ * @param :  none
  * @return : none
  * @author : Aaron Hunter
  */
-static void handle_byte(uint8_t c);
+static void UART_parse_message();
 
 /**
  * @function : UART_send(char* buf, int length)
@@ -212,15 +214,15 @@ int main(void)
   msg_length = sprintf((char *) msg,"KASM Application Beginning \r\n");
   UART_send((char *) msg, msg_length);
 
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if(byte_avail == TRUE){
-		  handle_byte(recvd_byte);
+	  if(message_ready == TRUE){
+		  UART_parse_message();
+		  message_ready = FALSE;
 	  }
     /* USER CODE END WHILE */
 
@@ -1590,24 +1592,30 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 }
 
 
-
-
 /**
- * @function : handle_byte
- * @brief : writes a byte from UART4 into the rx buffer
+ * @function : UART_parse_message
+ * @brief : reads the message from the rx buffer and puts it into module level message buffer
+ * @param :  none
  * @return : none
  * @author : Aaron Hunter
  */
-static void handle_byte(uint8_t c){
-	write_buffer(rxbuf_p, c);
+static void UART_parse_message(void){
+	int i;
+	int length = get_num_elements(rxbuf_p);
 
-	// echo back out the serial port
-	LL_USART_TransmitData8(UART4, c);
-	HAL_GPIO_TogglePin(LED0_GPIO_Port, LED0_Pin);
-
-	byte_avail = FALSE;
-
+	reading_rx_buffer = TRUE; // block RX interrupt while reading from the buffer
+	for (i=0; i < length; i++){
+		msg_buffer[i] = read_buffer(rxbuf_p);
+	}
+	reading_rx_buffer = FALSE;
+	if (rx_collision == TRUE){
+		UART4->CR1 |= USART_CR1_RXNEIE; // re-enable interrupt
+		rx_collision = FALSE; // reset collision flag
+	}
+	// echo message back
+	UART_send(msg_buffer, length);
 }
+
 
 /**
  * @function : UART_send(char* buf, int length)
