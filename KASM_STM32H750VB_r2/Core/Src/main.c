@@ -38,6 +38,8 @@
 #define TRUE 1
 #define FALSE 0
 #define BUFFER_SIZE 80
+#define MINDUTYCYCLE 20
+#define MAXDUTYCYCLE (32768 -1)
 
 /* USER CODE END PD */
 
@@ -91,7 +93,8 @@ int rx_collision = FALSE;
 uint8_t ctrl_tmr_expired = FALSE;
 
 /* Actuators reference vector */
-int16_t cmd_ref[NUM_ACTUATORS] = {0};
+int16_t cmd_ref[NUM_ACTUATORS] = {0};  //displacement commands in nanometers
+uint8_t new_cmd_ready = FALSE;
 
 /* USER CODE END PV */
 
@@ -145,6 +148,23 @@ static void UART_send(char* buf, int length);
  * @author : Aaron Hunter
  */
 static void init_channels(void);
+
+/**
+ * @function : update_commands
+ * @brief : sets the new actuator command targets
+ * @return none
+ * @author Aaron Hunter
+ */
+static void update_commands(void);
+
+
+/**
+ * @function calc_dutycycle(cmd)
+ * @param cmd
+ * @return dutycycle
+ * @authoer Aaron Hunter
+ */
+uint16_t calc_dutycycle(int16_t cmd);
 
 
 /* USER CODE END PFP */
@@ -223,6 +243,13 @@ int main(void)
 	  if(message_ready == TRUE){
 		  UART_parse_message();
 		  message_ready = FALSE;
+	  }
+	  if(ctrl_tmr_expired == TRUE){
+		  if( new_cmd_ready == TRUE){
+			  update_commands();// update command targets
+			  new_cmd_ready = FALSE;
+		  }
+		  ctrl_tmr_expired = FALSE; //reset timer
 	  }
     /* USER CODE END WHILE */
 
@@ -1581,13 +1608,8 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{ static int i =0;
-
-    if (htim==&htim1){
-    	i +=1;
-
-	}
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+	ctrl_tmr_expired = TRUE;
 
 }
 
@@ -1727,6 +1749,42 @@ static void init_channels(void){
 	TIM1->CNT = 0;  // acts as the timing signal
 	TIM16->CNT = 0; // reset timer 16 counter
 
+}
+
+/**
+ * @function : update_commands
+ * @brief : sets the new actuator command targets
+ * @return none
+ * @author Aaron Hunter
+ */
+static void update_commands(void){
+	int i = 0;
+	int8_t phase;
+	uint16_t dutycycle;
+
+	for(i = 0; i<NUM_ACTUATORS; i++){
+		;
+	}
+}
+
+/**
+ * @function calc_dutycycle(cmd)
+ * @brief computes the dutycycle in counts from an actuator command in nanometers
+ * @param cmd
+ * @return dutycycle
+ * @authoer Aaron Hunter
+ */
+uint16_t calc_dutycycle(int16_t cmd){
+	uint16_t dutycycle = 0;
+	uint16_t min_dutycycle = MINDUTYCYCLE;
+	uint16_t max_dutycycle = MAXDUTYCYCLE;
+	int scale_den = 10; //  scaling factor denominator
+	int scale_num = 7; //  scaling factor numerator
+	// apply lead filter
+	dutycycle = (uint16_t)((abs((int)cmd) * scale_num)/scale_den);
+	if(dutycycle < min_dutycycle) dutycycle = min_dutycycle;
+	if(dutycycle > max_dutycycle) dutycycle = max_dutycycle;
+	return dutycycle;
 }
 
 
