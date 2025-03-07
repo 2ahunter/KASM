@@ -140,6 +140,7 @@ void Error_Handler(void);
 #define TIM1_CH2_PHASE_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
+#define TIM1_CCR4 ((void *)(TIM1) + 0x40UL)
 
 /* USER CODE END Private defines */
 

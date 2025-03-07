@@ -6,7 +6,7 @@
   *
   * @bug Rev2 actuator board has timer 2 as the clock for the LDC (eddy current sensor)
   * This file defines two versions, one with the LDC and one without. Change the #define to switch
-  * between versions.
+  * between versions. ***Not implemented yet***
   *
   ******************************************************************************
   */
@@ -14,26 +14,43 @@
 #ifndef INC_ACTUATORS_H_
 #define INC_ACTUATORS_H_
 
+
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
 #include <stdint.h>  /* include for uint32_t type */
+
+/* Defines -------------------------------------------------------------------*/
+
 #define NUM_ACTUATORS 26
 #define BITS 32
 
+/* Typedefs -------------------------------------------------------------------*/
+
+
+typedef struct TIM_actuator_t{
+	uint32_t ID;  				// unique identifier for the actuator on the DM
+	GPIO_TypeDef *  phase_port; 		// GPIO bank
+	uint16_t phase_pin; 		// GPIO pin
+	volatile uint32_t * compare;  // dutycycle register address
+} TIM_actuator_t;
+
+typedef struct HRTIM_actuator_t{
+	uint32_t ID;  				// unique identifier for the actuator on the DM
+	uint16_t phase_port; 		// GPIO bank
+	uint16_t phase_pin; 		// GPIO pin
+	HRTIM_TypeDef* timer;  		// timer instance
+	uint32_t channel;			// timer channel
+	long unsigned int compare_register;	// dutycycle register
+} HRTIM_actuator_t;
+
 typedef enum actuators{
-	HRTIM_CHA1,
-	HRTIM_CHA2,
-	HRTIM_CHB1,
 	TIM8_CH4,
 	TIM2_CH1,
 	TIM5_CH2,
-	HRTIM_CHB2,
-	HRTIM_CHC1,
 	TIM_5_CH3,
 	TIM13_CH1,
-	HRTIM_CHC2,
-	HRTIM_CHD1,
 	TIM14_CH1,
 	TIM1_CH1,
-	HRTIM_CHD2,
 	TIM4_CH2,
 	TIM1_CH2,
 	TIM1_CH3,
@@ -44,11 +61,21 @@ typedef enum actuators{
 	TIM15_CH2,
 	TIM4_CH1,
 	TIM4_CH3,
-	TIM4_CH4
+	TIM4_CH4,
+	HRTIM_CHA1,
+	HRTIM_CHA2,
+	HRTIM_CHB1,
+	HRTIM_CHB2,
+	HRTIM_CHC1,
+	HRTIM_CHC2,
+	HRTIM_CHD1,
+	HRTIM_CHD2
 }actuators;   /* actuator index values */
 
+/* Variables -------------------------------------------------------------------*/
+
 /* each bit represents whether the channel is present */
-uint32_t  actuator_config = 0xFFFF >> (BITS - NUM_ACTUATORS);  /* by default enable all actuators */
+//uint32_t  actuator_config = 0xFFFF >> (BITS - NUM_ACTUATORS);  /* by default enable all actuators */
 
 //#define HAS_LDC 1
 //
@@ -59,5 +86,23 @@ uint32_t  actuator_config = 0xFFFF >> (BITS - NUM_ACTUATORS);  /* by default ena
 //
 //#endif /* HAS_LDC */
 
+/* Function prototypes ----------------------------------------------------------*/
+
+/**
+ * @function tim_actuator_init
+ * @brief initializes a standard timer actuator struct
+ * @param actuator : pointer to the struct
+ * @param ID : unique identifier of the actuator corresponding to the position in a DM
+ * @param port : GPIO bank for the phase pin
+ * @param pin : pin in the GPIO bank corresponding to the phase pin
+ * @param compare : address of the compare register
+ */
+void tim_actuator_init(
+		TIM_actuator_t * actuator,
+		uint32_t id,
+		GPIO_TypeDef * port,
+		uint16_t pin,
+		volatile uint32_t * compare_add
+	);
 
 #endif /* INC_ACTUATORS_H_ */

@@ -24,6 +24,7 @@
 #include "circular_buffer.h"
 #include "actuators.h"
 #include "stdio.h"
+#include "stdlib.h"
 
 /* USER CODE END Includes */
 
@@ -39,7 +40,8 @@
 #define FALSE 0
 #define BUFFER_SIZE 80
 #define MINDUTYCYCLE 20
-#define MAXDUTYCYCLE (32768 -1)
+#define PERIOD (24000-1)
+#define MAXDUTYCYCLE PERIOD
 
 /* USER CODE END PD */
 
@@ -96,6 +98,9 @@ uint8_t ctrl_tmr_expired = FALSE;
 int16_t cmd_ref[NUM_ACTUATORS] = {0};  //displacement commands in nanometers
 uint8_t new_cmd_ready = FALSE;
 
+TIM_actuator_t  tim1_ch1;  // TIM1_CH1
+TIM_actuator_t  tim1_ch4;  // TIM1_CH4
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -120,6 +125,7 @@ static void MX_TIM16_Init(void);
 static void MX_UART4_Init(void);
 static void MX_SPI6_Init(void);
 /* USER CODE BEGIN PFP */
+
 
 /**
  * @function : UART_parse_message
@@ -197,6 +203,7 @@ int main(void)
   init_buffer(rxbuf_p);
   init_buffer(txbuf_p);
 
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -227,12 +234,22 @@ int main(void)
   MX_UART4_Init();
   MX_SPI6_Init();
   /* USER CODE BEGIN 2 */
+
+  /* init actuators */
+  tim_actuator_init(&tim1_ch1, TIM1_CH1, TIM1_CH1_PHASE_GPIO_Port, TIM1_CH1_PHASE_Pin,(volatile uint32_t *) &TIM1->CCR1);
+  tim_actuator_init(&tim1_ch4, TIM1_CH4, TIM1_CH4_PHASE_GPIO_Port, TIM1_CH4_PHASE_Pin, (volatile uint32_t *) &TIM1->CCR4);
+
+  *(tim1_ch4.compare) = PERIOD/10;
+  volatile uint32_t * test = &TIM1->CCR4;
+
   uint8_t msg[BUFFER_SIZE];
   int msg_length = 0;
 
   init_channels();
   msg_length = sprintf((char *) msg,"KASM Application Beginning \r\n");
   UART_send((char *) msg, msg_length);
+//  msg_length = sprintf((char *) msg,"Test period %d\r\n", test_period);
+//  UART_send((char *) msg, msg_length);
 
   /* USER CODE END 2 */
 
