@@ -17,8 +17,8 @@
  * @param pin : pin in the GPIO bank corresponding to the phase pin
  * @param compare : address of the compare register
  */
-void tim_actuator_init(
-		TIM_actuator_t * actuator,
+void actuator_init(
+		actuator_t * actuator,
 		uint32_t id,
 		GPIO_TypeDef * port,
 		uint16_t pin,
@@ -27,5 +27,5 @@ void tim_actuator_init(
 	actuator->ID = id;
 	actuator->phase_port = port;
 	actuator->phase_pin = pin;
-	actuator->compare = compare_add;
+	actuator->dutycycle = compare_add;
 }

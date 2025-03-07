@@ -98,8 +98,11 @@ uint8_t ctrl_tmr_expired = FALSE;
 int16_t cmd_ref[NUM_ACTUATORS] = {0};  //displacement commands in nanometers
 uint8_t new_cmd_ready = FALSE;
 
-TIM_actuator_t  tim1_ch1;  // TIM1_CH1
-TIM_actuator_t  tim1_ch4;  // TIM1_CH4
+/* actuators */
+actuator_t actuators[NUM_ACTUATORS];
+//actuator_t  tim1_ch1;
+//actuator_t  tim1_ch4;
+//actuator_t hrtim1_chd1;
 
 /* USER CODE END PV */
 
@@ -154,6 +157,15 @@ static void UART_send(char* buf, int length);
  * @author : Aaron Hunter
  */
 static void init_channels(void);
+
+/**
+ * @function : init_actuators
+ * @brief : Creates and populates actuator array
+ * @param :  none
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void init_actuators(void);
 
 /**
  * @function : update_commands
@@ -235,21 +247,14 @@ int main(void)
   MX_SPI6_Init();
   /* USER CODE BEGIN 2 */
 
-  /* init actuators */
-  tim_actuator_init(&tim1_ch1, TIM1_CH1, TIM1_CH1_PHASE_GPIO_Port, TIM1_CH1_PHASE_Pin,(volatile uint32_t *) &TIM1->CCR1);
-  tim_actuator_init(&tim1_ch4, TIM1_CH4, TIM1_CH4_PHASE_GPIO_Port, TIM1_CH4_PHASE_Pin, (volatile uint32_t *) &TIM1->CCR4);
+  init_channels(); // start PWM generation
+  init_actuators(); // set up the actuators
 
-  *(tim1_ch4.compare) = PERIOD/10;
-  volatile uint32_t * test = &TIM1->CCR4;
-
+  /* Say hellow to the outside world */
   uint8_t msg[BUFFER_SIZE];
   int msg_length = 0;
-
-  init_channels();
-  msg_length = sprintf((char *) msg,"KASM Application Beginning \r\n");
+  msg_length = sprintf((char *) msg,"KASM Application Starting \r\n");
   UART_send((char *) msg, msg_length);
-//  msg_length = sprintf((char *) msg,"Test period %d\r\n", test_period);
-//  UART_send((char *) msg, msg_length);
 
   /* USER CODE END 2 */
 
@@ -419,7 +424,7 @@ static void MX_HRTIM_Init(void)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = (24000-1)/10;
+  pCompareCfg.CompareValue = (24000-1)/1000;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_1, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
@@ -506,7 +511,7 @@ static void MX_HRTIM_Init(void)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = (24000 -1)/10;
+  pCompareCfg.CompareValue = (24000 -1)/1000;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_C, HRTIM_COMPAREUNIT_1, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
@@ -516,7 +521,7 @@ static void MX_HRTIM_Init(void)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = (24000-1)/10;
+  pCompareCfg.CompareValue = (24000-1)/1000;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_D, HRTIM_COMPAREUNIT_1, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
@@ -820,7 +825,7 @@ static void MX_TIM1_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = (24000-1)/100;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -885,7 +890,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 12;
+  htim2.Init.Period = 24000 -1;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
@@ -899,14 +904,14 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 3;
+  sConfigOC.Pulse = (24000 -1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
-  sConfigOC.Pulse = 6;
+  sConfigOC.Pulse = (24000-1)/1000;
   if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
@@ -970,13 +975,14 @@ static void MX_TIM4_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000 -1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
+  sConfigOC.Pulse = (24000-1)/1000;
   if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
@@ -1042,7 +1048,7 @@ static void MX_TIM5_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = (24000-1)/2;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
@@ -1083,7 +1089,7 @@ static void MX_TIM8_Init(void)
   htim8.Instance = TIM8;
   htim8.Init.Prescaler = 0;
   htim8.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim8.Init.Period = 65535;
+  htim8.Init.Period = 24000 -1;
   htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim8.Init.RepetitionCounter = 0;
   htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
@@ -1109,7 +1115,7 @@ static void MX_TIM8_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
@@ -1186,7 +1192,7 @@ static void MX_TIM12_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = (24000-1)/10;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim12, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
@@ -1220,7 +1226,7 @@ static void MX_TIM13_Init(void)
   htim13.Instance = TIM13;
   htim13.Init.Prescaler = 0;
   htim13.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim13.Init.Period = 65535;
+  htim13.Init.Period = 24000-1;
   htim13.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim13.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim13) != HAL_OK)
@@ -1232,7 +1238,7 @@ static void MX_TIM13_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim13, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
@@ -1266,7 +1272,7 @@ static void MX_TIM14_Init(void)
   htim14.Instance = TIM14;
   htim14.Init.Prescaler = 0;
   htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim14.Init.Period = 65535;
+  htim14.Init.Period = 24000-1;
   htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim14) != HAL_OK)
@@ -1278,7 +1284,7 @@ static void MX_TIM14_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim14, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
@@ -1315,7 +1321,7 @@ static void MX_TIM15_Init(void)
   htim15.Instance = TIM15;
   htim15.Init.Prescaler = 0;
   htim15.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim15.Init.Period = 65535;
+  htim15.Init.Period = 24000-1;
   htim15.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim15.Init.RepetitionCounter = 0;
   htim15.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -1340,7 +1346,7 @@ static void MX_TIM15_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -1394,7 +1400,7 @@ static void MX_TIM16_Init(void)
   htim16.Instance = TIM16;
   htim16.Init.Prescaler = 0;
   htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim16.Init.Period = 65535;
+  htim16.Init.Period = 24000-1;
   htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim16.Init.RepetitionCounter = 0;
   htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -1407,7 +1413,7 @@ static void MX_TIM16_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -1686,72 +1692,53 @@ static void UART_send(char* buf, int length){
  */
 static void init_channels(void){
 
-	/* Timer 1 driver channels and control timer */
-	/* Note that timer 1 is the period timer and is interrupt-driven */
+	/* Timer 1 is the application timer and is interrupt-driven */
 	HAL_TIM_Base_Start_IT(&htim1);
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
-	HAL_GPIO_WritePin(TIM1_CH1_PHASE_GPIO_Port, TIM1_CH1_PHASE_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM1_CH2_PHASE_GPIO_Port, TIM1_CH2_PHASE_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM1_CH3_PHASE_GPIO_Port, TIM1_CH3_PHASE_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM1_CH4_PHASE_GPIO_Port, TIM1_CH4_PHASE_Pin, GPIO_PIN_SET);
 
-	/* Timer 2 channel  */
+	/* Timer 2 */
 	HAL_TIM_Base_Start(&htim2);
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-	HAL_GPIO_WritePin(TIM2_CH1_PHASE_GPIO_Port, TIM2_CH1_PHASE_Pin, GPIO_PIN_SET);
 
-	/* Timer 4 channels */
+	/* Timer 4 */
 	HAL_TIM_Base_Start(&htim4);
 	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);
 	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
 	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4);
-	HAL_GPIO_WritePin(TIM4_CH1_PHASE_GPIO_Port, TIM4_CH1_PHASE_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM4_CH2_PHASE_GPIO_Port, TIM4_CH2_PHASE_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM4_CH3_PHASE_GPIO_Port, TIM4_CH3_PHASE_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM4_CH4_PHASE_GPIO_Port, TIM4_CH4_PHASE_Pin, GPIO_PIN_SET);
 
-	/* Timer 5 channels */
+	/* Timer 5 */
 	HAL_TIM_Base_Start(&htim5);
 	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_2);
 	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3);
-	HAL_GPIO_WritePin(TIM5_CH2_PHASE_GPIO_Port, TIM5_CH2_PHASE_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM5_CH3_PHASE_GPIO_Port, TIM5_CH3_PHASE_Pin, GPIO_PIN_SET);
 
-	/* Timer 8 channel */
+	/* Timer 8 */
 	HAL_TIM_Base_Start(&htim8);
 	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_4);
-	HAL_GPIO_WritePin(TIM8_CH4_PHASE_GPIO_Port, TIM8_CH4_PHASE_Pin, GPIO_PIN_SET);
 
-	/* Timer 12 channel */
+	/* Timer 12 */
 	HAL_TIM_Base_Start(&htim12);
 	HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
-	HAL_GPIO_WritePin(TIM12_CH2_PHASE_GPIO_Port, TIM12_CH2_PHASE_Pin, GPIO_PIN_SET);
 
-	/* Timer 13 channel */
+	/* Timer 13 */
 	HAL_TIM_Base_Start(&htim13);
 	HAL_TIM_PWM_Start(&htim13, TIM_CHANNEL_1);
-	HAL_GPIO_WritePin(TIM13_CH1_PHASE_GPIO_Port, TIM13_CH1_PHASE_Pin, GPIO_PIN_SET);
 
-	/* Timer 14 channel */
+	/* Timer 14 */
 	HAL_TIM_Base_Start(&htim14);
 	HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1);
-	HAL_GPIO_WritePin(TIM14_CH1_PHASE_GPIO_Port, TIM14_CH1_PHASE_Pin, GPIO_PIN_SET);
 
-	/* Timer 15 channels */
+	/* Timer 15 */
 	HAL_TIM_Base_Start(&htim15);
 	HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_2);
-	HAL_GPIO_WritePin(TIM15_CH1_PHASE_GPIO_Port, TIM15_CH1_PHASE_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(TIM15_CH2_PHASE_GPIO_Port, TIM15_CH2_PHASE_Pin, GPIO_PIN_SET);
 
-	/* Timer 16 channel */
+	/* Timer 16 */
 	HAL_TIM_Base_Start(&htim16);
 	HAL_TIM_PWM_Start(&htim16, TIM_CHANNEL_1);
-	HAL_GPIO_WritePin(TIM16_CH1_PHASE_GPIO_Port, TIM16_CH1_PHASE_Pin, GPIO_PIN_SET);
 
 	/* High Resolution Timer */
 	/* Enable outputs */
@@ -1760,12 +1747,66 @@ static void init_channels(void){
 	/* Start Timer */
 	HRTIM1->sMasterRegs.MCR = HRTIM_MCR_TACEN + HRTIM_MCR_TBCEN + HRTIM_MCR_TCCEN + HRTIM_MCR_TDCEN;
 
-
-	/* Synchronize all the timers by resetting the clocks to zero */
+	/* Synchronize Timer 16 by resetting its clock to zero along with Timer 1 */
 	/* all other timers except for 16 are updated in hardware using internal triggers */
 	TIM1->CNT = 0;  // acts as the timing signal
 	TIM16->CNT = 0; // reset timer 16 counter
 
+}
+
+
+/**
+ * @function : init_actuators
+ * @brief : Creates and populates actuator array
+ * @param :  none
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void init_actuators(void){
+	uint16_t duty = PERIOD/100;
+	static int phase = GPIO_PIN_SET;
+	int i = 0;
+
+	actuator_init(&actuators[TIM1_CH1], TIM1_CH1, TIM1_CH1_PHASE_GPIO_Port, TIM1_CH1_PHASE_Pin,(volatile uint32_t *) &TIM1->CCR1);
+	actuator_init(&actuators[TIM1_CH2], TIM1_CH2, TIM1_CH2_PHASE_GPIO_Port, TIM1_CH2_PHASE_Pin,(volatile uint32_t *) &TIM1->CCR2);
+	actuator_init(&actuators[TIM1_CH3], TIM1_CH3, TIM1_CH3_PHASE_GPIO_Port, TIM1_CH3_PHASE_Pin,(volatile uint32_t *) &TIM1->CCR3);
+	actuator_init(&actuators[TIM1_CH4], TIM1_CH4, TIM1_CH4_PHASE_GPIO_Port, TIM1_CH4_PHASE_Pin,(volatile uint32_t *) &TIM1->CCR4);
+	actuator_init(&actuators[TIM2_CH1], TIM2_CH1, TIM2_CH1_PHASE_GPIO_Port, TIM2_CH1_PHASE_Pin,(volatile uint32_t *) &TIM2->CCR1);
+	actuator_init(&actuators[TIM4_CH1], TIM4_CH1, TIM4_CH1_PHASE_GPIO_Port, TIM4_CH1_PHASE_Pin,(volatile uint32_t *) &TIM4->CCR1);
+	actuator_init(&actuators[TIM4_CH2], TIM4_CH2, TIM4_CH2_PHASE_GPIO_Port, TIM4_CH2_PHASE_Pin,(volatile uint32_t *) &TIM4->CCR2);
+	actuator_init(&actuators[TIM4_CH3], TIM4_CH3, TIM4_CH3_PHASE_GPIO_Port, TIM4_CH3_PHASE_Pin,(volatile uint32_t *) &TIM4->CCR3);
+	actuator_init(&actuators[TIM4_CH4], TIM4_CH4, TIM4_CH4_PHASE_GPIO_Port, TIM4_CH4_PHASE_Pin,(volatile uint32_t *) &TIM4->CCR4);
+	actuator_init(&actuators[TIM5_CH2], TIM5_CH2, TIM5_CH2_PHASE_GPIO_Port, TIM5_CH2_PHASE_Pin,(volatile uint32_t *) &TIM5->CCR2);
+	actuator_init(&actuators[TIM5_CH3], TIM5_CH3, TIM5_CH3_PHASE_GPIO_Port, TIM5_CH3_PHASE_Pin,(volatile uint32_t *) &TIM5->CCR3);
+	actuator_init(&actuators[TIM8_CH4], TIM8_CH4, TIM8_CH4_PHASE_GPIO_Port, TIM8_CH4_PHASE_Pin,(volatile uint32_t *) &TIM8->CCR4);
+	actuator_init(&actuators[TIM12_CH2], TIM12_CH2, TIM12_CH2_PHASE_GPIO_Port, TIM12_CH2_PHASE_Pin,(volatile uint32_t *) &TIM12->CCR2);
+	actuator_init(&actuators[TIM13_CH1], TIM13_CH1, TIM13_CH1_PHASE_GPIO_Port, TIM13_CH1_PHASE_Pin,(volatile uint32_t *) &TIM13->CCR1);
+	actuator_init(&actuators[TIM14_CH1], TIM14_CH1, TIM14_CH1_PHASE_GPIO_Port, TIM14_CH1_PHASE_Pin,(volatile uint32_t *) &TIM14->CCR1);
+	actuator_init(&actuators[TIM15_CH1], TIM15_CH1, TIM15_CH1_PHASE_GPIO_Port, TIM15_CH1_PHASE_Pin,(volatile uint32_t *) &TIM15->CCR1);
+	actuator_init(&actuators[TIM15_CH2], TIM15_CH2, TIM15_CH2_PHASE_GPIO_Port, TIM15_CH2_PHASE_Pin,(volatile uint32_t *) &TIM15->CCR2);
+	actuator_init(&actuators[TIM16_CH1], TIM16_CH1, TIM16_CH1_PHASE_GPIO_Port, TIM16_CH1_PHASE_Pin,(volatile uint32_t *) &TIM16->CCR1);
+	actuator_init(&actuators[HRTIM_CHA1],HRTIM_CHA1, HRTIM_CHA1_PHASE_GPIO_Port, HRTIM_CHA1_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_A].CMP1xR);
+	actuator_init(&actuators[HRTIM_CHA2],HRTIM_CHA2, HRTIM_CHA2_PHASE_GPIO_Port, HRTIM_CHA2_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_A].CMP2xR);
+	actuator_init(&actuators[HRTIM_CHB1],HRTIM_CHB1, HRTIM_CHB1_PHASE_GPIO_Port, HRTIM_CHB1_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_B].CMP1xR);
+	actuator_init(&actuators[HRTIM_CHB2],HRTIM_CHB2, HRTIM_CHB2_PHASE_GPIO_Port, HRTIM_CHB2_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_B].CMP2xR);
+	actuator_init(&actuators[HRTIM_CHC1],HRTIM_CHC1, HRTIM_CHC1_PHASE_GPIO_Port, HRTIM_CHC1_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_C].CMP1xR);
+	actuator_init(&actuators[HRTIM_CHC2],HRTIM_CHC2, HRTIM_CHC2_PHASE_GPIO_Port, HRTIM_CHC2_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_C].CMP2xR);
+	actuator_init(&actuators[HRTIM_CHD1],HRTIM_CHD1, HRTIM_CHD1_PHASE_GPIO_Port, HRTIM_CHD1_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_D].CMP1xR);
+	actuator_init(&actuators[HRTIM_CHD2],HRTIM_CHD2, HRTIM_CHD2_PHASE_GPIO_Port, HRTIM_CHD2_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_D].CMP2xR);
+
+	/* initialize  the phase and dutycycle */
+	for(i=0;i<NUM_ACTUATORS;i++){
+		*(actuators[i].dutycycle) = duty;
+		HAL_GPIO_WritePin(actuators[i].phase_port, actuators[i].phase_pin, phase);
+	}
 }
 
 /**
@@ -1789,7 +1830,7 @@ static void update_commands(void){
  * @brief computes the dutycycle in counts from an actuator command in nanometers
  * @param cmd
  * @return dutycycle
- * @authoer Aaron Hunter
+ * @author Aaron Hunter
  */
 uint16_t calc_dutycycle(int16_t cmd){
 	uint16_t dutycycle = 0;

@@ -22,46 +22,37 @@
 /* Defines -------------------------------------------------------------------*/
 
 #define NUM_ACTUATORS 26
-#define BITS 32
 
 /* Typedefs -------------------------------------------------------------------*/
 
 
-typedef struct TIM_actuator_t{
+typedef struct actuator_t{
 	uint32_t ID;  				// unique identifier for the actuator on the DM
 	GPIO_TypeDef *  phase_port; 		// GPIO bank
 	uint16_t phase_pin; 		// GPIO pin
-	volatile uint32_t * compare;  // dutycycle register address
-} TIM_actuator_t;
+	volatile uint32_t * dutycycle;  // dutycycle register address
+} actuator_t;
 
-typedef struct HRTIM_actuator_t{
-	uint32_t ID;  				// unique identifier for the actuator on the DM
-	uint16_t phase_port; 		// GPIO bank
-	uint16_t phase_pin; 		// GPIO pin
-	HRTIM_TypeDef* timer;  		// timer instance
-	uint32_t channel;			// timer channel
-	long unsigned int compare_register;	// dutycycle register
-} HRTIM_actuator_t;
 
-typedef enum actuators{
-	TIM8_CH4,
-	TIM2_CH1,
-	TIM5_CH2,
-	TIM_5_CH3,
-	TIM13_CH1,
-	TIM14_CH1,
+typedef enum actuator_index{
 	TIM1_CH1,
-	TIM4_CH2,
 	TIM1_CH2,
 	TIM1_CH3,
-	TIM16_CH1,
-	TIM15_CH1,
 	TIM1_CH4,
-	TIM12_CH2,
-	TIM15_CH2,
+	TIM2_CH1,
 	TIM4_CH1,
+	TIM4_CH2,
 	TIM4_CH3,
 	TIM4_CH4,
+	TIM5_CH2,
+	TIM5_CH3,
+	TIM8_CH4,
+	TIM12_CH2,
+	TIM13_CH1,
+	TIM14_CH1,
+	TIM15_CH1,
+	TIM15_CH2,
+	TIM16_CH1,
 	HRTIM_CHA1,
 	HRTIM_CHA2,
 	HRTIM_CHB1,
@@ -70,7 +61,7 @@ typedef enum actuators{
 	HRTIM_CHC2,
 	HRTIM_CHD1,
 	HRTIM_CHD2
-}actuators;   /* actuator index values */
+}actuator_index;   /* actuator index values */
 
 /* Variables -------------------------------------------------------------------*/
 
@@ -97,8 +88,8 @@ typedef enum actuators{
  * @param pin : pin in the GPIO bank corresponding to the phase pin
  * @param compare : address of the compare register
  */
-void tim_actuator_init(
-		TIM_actuator_t * actuator,
+void actuator_init(
+		actuator_t * actuator,
 		uint32_t id,
 		GPIO_TypeDef * port,
 		uint16_t pin,
