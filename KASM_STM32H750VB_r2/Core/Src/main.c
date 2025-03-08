@@ -42,6 +42,8 @@
 #define MINDUTYCYCLE 20
 #define PERIOD (24000-1)
 #define MAXDUTYCYCLE PERIOD
+#define MICRON_1 1000
+#define CMD_LENGTH (NUM_ACTUATORS * 2)
 
 /* USER CODE END PD */
 
@@ -75,15 +77,15 @@ TIM_HandleTypeDef htim15;
 TIM_HandleTypeDef htim16;
 
 /* USER CODE BEGIN PV */
+
+/* UART transmit and receive buffers */
 circular_buffer_t rxbuf; /* UART receive buffer */
 circular_buffer_t txbuf; /* UART transmit buffer */
-circular_buffer_t *rxbuf_p = &rxbuf; /* UART receive buffer */
-circular_buffer_t *txbuf_p = &txbuf; /* UART transmit buffer */
+circular_buffer_t *rxbuf_p = &rxbuf; /* UART receive buffer pointer */
+circular_buffer_t *txbuf_p = &txbuf; /* UART transmit buffer pointer */
 
 
 /* UART flags and signals */
-//uint8_t recvd_byte = {0};
-//uint8_t byte_avail = FALSE;
 int message_ready = FALSE;
 char msg_buffer[BUFFER_LENGTH];
 int reading_rx_buffer = FALSE;
@@ -94,15 +96,21 @@ int rx_collision = FALSE;
 /* Period timer flag */
 uint8_t ctrl_tmr_expired = FALSE;
 
-/* Actuators reference vector */
+/* Command reference vector */
 int16_t cmd_ref[NUM_ACTUATORS] = {0};  //displacement commands in nanometers
+uint8_t cmd_bytes[NUM_ACTUATORS * 2] = {0};
 uint8_t new_cmd_ready = FALSE;
 
 /* actuators */
 actuator_t actuators[NUM_ACTUATORS];
-//actuator_t  tim1_ch1;
-//actuator_t  tim1_ch4;
-//actuator_t hrtim1_chd1;
+
+typedef enum UART_receive_state_t{
+	STARTBYTE1,
+	STARTBYTE2,
+	STOREMESSAGE,
+	ENDBYTE1,
+	ENDBYTE2
+}UART_receive_state_t;
 
 /* USER CODE END PV */
 
@@ -201,6 +209,10 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+	int i = {0};
+	for(i = 0; i < NUM_ACTUATORS; i++){
+		cmd_ref[i] = MICRON_1;
+	}
 
   /* USER CODE END 1 */
 
@@ -267,6 +279,7 @@ int main(void)
 		  message_ready = FALSE;
 	  }
 	  if(ctrl_tmr_expired == TRUE){
+		  new_cmd_ready = TRUE;  // testing
 		  if( new_cmd_ready == TRUE){
 			  update_commands();// update command targets
 			  new_cmd_ready = FALSE;
@@ -1633,7 +1646,6 @@ static void MX_GPIO_Init(void)
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	ctrl_tmr_expired = TRUE;
-
 }
 
 
@@ -1763,7 +1775,7 @@ static void init_channels(void){
  * @author : Aaron Hunter
  */
 static void init_actuators(void){
-	uint16_t duty = PERIOD/100;
+	uint16_t duty = MINDUTYCYCLE;
 	static int phase = GPIO_PIN_SET;
 	int i = 0;
 
@@ -1809,6 +1821,71 @@ static void init_actuators(void){
 	}
 }
 
+
+
+
+
+/**
+ * @function : run_state_machine
+ * @brief : parses external command messages
+ * @param byte : received byte
+ * @return none
+ * @author Aaron Hunter
+ * */
+static void run_state_machine(uint8_t byte)
+{
+	static UART_receive_state_t current_state= STARTBYTE1;
+	static int counter = 0;
+	UART_receive_state_t next_state;
+	uint8_t start_bytes[2] = {1, 128};
+	uint8_t end_bytes[2] = {255, 127};
+
+	switch(current_state){
+		case STARTBYTE1:
+			if(byte == start_bytes[0]){
+				next_state = STARTBYTE2;
+			} else{
+				next_state = current_state;
+			}
+			break;
+		case(STARTBYTE2):
+			if(byte == start_bytes[1]){
+				next_state = STOREMESSAGE;
+				counter = 0;
+			} else{
+				next_state = STARTBYTE1;
+			}
+			break;
+		case(STOREMESSAGE):
+			if(counter == CMD_LENGTH-1){
+				next_state = ENDBYTE1;
+			}else{
+				next_state = STOREMESSAGE;
+			}
+			cmd_bytes[counter] = byte;
+			counter++;
+			break;
+		case(ENDBYTE1):
+			if(byte == end_bytes[0]){
+				next_state = ENDBYTE2;
+			}else{
+				next_state = STARTBYTE1;
+			}
+			break;
+		case(ENDBYTE2):
+			if(byte == end_bytes[1]){
+				new_cmd_ready = TRUE;
+			}else{
+			HAL_GPIO_TogglePin(LED0_GPIO_Port,LED0_Pin);
+			}
+			next_state = STARTBYTE1;
+			break;
+		default:
+			break;
+	}
+	current_state = next_state;
+}
+
 /**
  * @function : update_commands
  * @brief : sets the new actuator command targets
@@ -1821,7 +1898,10 @@ static void update_commands(void){
 	uint16_t dutycycle;
 
 	for(i = 0; i<NUM_ACTUATORS; i++){
-		;
+		phase = (cmd_ref[i]>0);
+		dutycycle = calc_dutycycle(abs(cmd_ref[i])); // compute the dutycycle from the reference command
+		*(actuators[i].dutycycle) = dutycycle;  // set the duty cycle
+		HAL_GPIO_WritePin(actuators[i].phase_port, actuators[i].phase_pin, phase);  // set the phase pin
 	}
 }
 
