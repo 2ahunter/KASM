@@ -88,7 +88,7 @@ circular_buffer_t *txbuf_p = &txbuf; /* UART transmit buffer pointer */
 
 /* UART flags and signals */
 int message_ready = FALSE;
-char msg_buffer[BUFFER_LENGTH];
+//char msg_buffer[BUFFER_LENGTH];
 int reading_rx_buffer = FALSE;
 int writing_tx_buffer = FALSE;
 int tx_collision = FALSE;
@@ -275,6 +275,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  HAL_GPIO_WritePin(LED0_GPIO_Port, LED0_Pin,GPIO_PIN_RESET);
+	  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin,GPIO_PIN_RESET);
 	  if(message_ready == TRUE){
 		  UART_parse_message();
 		  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin,GPIO_PIN_RESET);
@@ -1661,6 +1663,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 static void UART_parse_message(void){
 	char msg_type[] = "CMD";
 	char response[BUFFER_LENGTH] = {0};
+	char msg_buffer[BUFFER_LENGTH] = {0};
 	union data {
 		char bytes[4];
 		int16_t cmd[2];
@@ -1681,13 +1684,19 @@ static void UART_parse_message(void){
 	}
 	// echo message back
 
-	bytes_size = sprintf(response,"Received %d bytes\r", length);
+	bytes_size = sprintf(response,"received: %d bytes\r\n", length);
 	UART_send(response, bytes_size);
 
 	memcpy(msg_hdr,msg_buffer,3); // Get the message type
+//	for(i=0; i < 3; i++){
+//		msg_hdr[i] = msg_buffer[i];
+//	}
 
-	bytes_size = sprintf(response,msg_hdr);
+	bytes_size = sprintf(response,msg_buffer); // echo message buffer
 	UART_send(response, bytes_size);
+
+	UART_send(msg_hdr, 3);
+
 //	size = sprintf(response,msg_buffer);
 //	UART_send(response, size);
 //	if(strcmp(msg_type,msg_hdr)==0){
@@ -1721,7 +1730,7 @@ static void UART_send(char* buf, int length){
 	/* enable interrupt to transmit message over the UART */
 	if(tx_collision == TRUE) tx_collision = FALSE;
 	UART4->CR1 |= USART_CR1_TXEIE;
-//	HAL_GPIO_TogglePin(LED0_GPIO_Port, LED0_Pin);
+
 }
 
 /**

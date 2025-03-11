@@ -246,7 +246,7 @@ void UART4_IRQHandler(void)
 	}
 	/* handle TX interrupt */
 	if (UART4->CR1 & USART_CR1_TXEIE){
-//		HAL_GPIO_TogglePin(LED0_GPIO_Port, LED0_Pin);
+		HAL_GPIO_WritePin(LED0_GPIO_Port, LED0_Pin,GPIO_PIN_SET);
 		if (UART4->ISR & USART_ISR_TXE_TXFNF){
 			if (writing_tx_buffer == TRUE){ // buffer is being written into
 				tx_collision = TRUE;
