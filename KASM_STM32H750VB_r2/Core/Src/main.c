@@ -25,6 +25,7 @@
 #include "actuators.h"
 #include "stdio.h"
 #include "stdlib.h"
+#include "string.h"
 
 /* USER CODE END Includes */
 
@@ -276,6 +277,7 @@ int main(void)
   {
 	  if(message_ready == TRUE){
 		  UART_parse_message();
+		  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin,GPIO_PIN_RESET);
 		  message_ready = FALSE;
 	  }
 	  if(ctrl_tmr_expired == TRUE){
@@ -1657,6 +1659,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
  * @author : Aaron Hunter
  */
 static void UART_parse_message(void){
+	char msg_type[] = "CMD";
+	char response[BUFFER_LENGTH] = {0};
+	union data {
+		char bytes[4];
+		int16_t cmd[2];
+		} data;
+	char msg_hdr[3] = {0};
+	int bytes_size = {0};
 	int i;
 	int length = get_num_elements(rxbuf_p);
 
@@ -1670,7 +1680,26 @@ static void UART_parse_message(void){
 		rx_collision = FALSE; // reset collision flag
 	}
 	// echo message back
-	UART_send(msg_buffer, length);
+
+	bytes_size = sprintf(response,"Received %d bytes\r", length);
+	UART_send(response, bytes_size);
+
+	memcpy(msg_hdr,msg_buffer,3); // Get the message type
+
+	bytes_size = sprintf(response,msg_hdr);
+	UART_send(response, bytes_size);
+//	size = sprintf(response,msg_buffer);
+//	UART_send(response, size);
+//	if(strcmp(msg_type,msg_hdr)==0){
+//		UART_send(msg_type, 3);
+//		for(i = 3; i< 7; i++){
+//			data.bytes[i-3] = msg_buffer[i];
+//		}
+//
+//		UART_send(data.bytes, 4);
+//	}
+
+
 }
 
 
@@ -1898,7 +1927,7 @@ static void update_commands(void){
 	uint16_t dutycycle;
 
 	for(i = 0; i<NUM_ACTUATORS; i++){
-		phase = (cmd_ref[i]>0);
+		phase = (cmd_ref[i]>0);  // phase is set to zero for negative commands, one for positive
 		dutycycle = calc_dutycycle(abs(cmd_ref[i])); // compute the dutycycle from the reference command
 		*(actuators[i].dutycycle) = dutycycle;  // set the duty cycle
 		HAL_GPIO_WritePin(actuators[i].phase_port, actuators[i].phase_pin, phase);  // set the phase pin
