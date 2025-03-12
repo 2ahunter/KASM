@@ -44,7 +44,8 @@
 #define PERIOD (24000-1)
 #define MAXDUTYCYCLE PERIOD
 #define MICRON_1 1000
-#define CMD_LENGTH (NUM_ACTUATORS * 2)
+#define CMD_VEC_LENGTH (NUM_ACTUATORS * 2)
+#define CMD_HDR_LENGTH 3
 
 /* USER CODE END PD */
 
@@ -1665,11 +1666,12 @@ static void UART_parse_message(void){
 	char response[BUFFER_LENGTH] = {0};
 	char msg_buffer[BUFFER_LENGTH] = {0};
 	union data {
-		char bytes[4];
-		int16_t cmd[2];
+		char bytes[2*NUM_ACTUATORS];
+		int16_t cmd[NUM_ACTUATORS];
 		} data;
-	char msg_hdr[3] = {0};
-	int bytes_size = {0};
+
+	char msg_hdr[CMD_HDR_LENGTH + 1] = {0};  // allocate an extra char for null termination
+	int n_bytes = {0};
 	int i;
 	int length = get_num_elements(rxbuf_p);
 
@@ -1682,31 +1684,19 @@ static void UART_parse_message(void){
 		UART4->CR1 |= USART_CR1_RXNEIE; // re-enable interrupt
 		rx_collision = FALSE; // reset collision flag
 	}
-	// echo message back
 
-	bytes_size = sprintf(response,"received: %d bytes\r\n", length);
-	UART_send(response, bytes_size);
+	memcpy(msg_hdr,msg_buffer,CMD_HDR_LENGTH*sizeof(uint8_t)); // Get the message type
 
-	memcpy(msg_hdr,msg_buffer,3); // Get the message type
-//	for(i=0; i < 3; i++){
-//		msg_hdr[i] = msg_buffer[i];
-//	}
+	if(strcmp(msg_type,msg_hdr)==0){
 
-	bytes_size = sprintf(response,msg_buffer); // echo message buffer
-	UART_send(response, bytes_size);
+		memcpy(data.cmd, &msg_buffer[CMD_HDR_LENGTH],NUM_ACTUATORS*(sizeof(int16_t)));  // get the data
 
-	UART_send(msg_hdr, 3);
-
-//	size = sprintf(response,msg_buffer);
-//	UART_send(response, size);
-//	if(strcmp(msg_type,msg_hdr)==0){
-//		UART_send(msg_type, 3);
-//		for(i = 3; i< 7; i++){
-//			data.bytes[i-3] = msg_buffer[i];
-//		}
-//
-//		UART_send(data.bytes, 4);
-//	}
+		n_bytes = sprintf(response, "\r\n Values: %d, %d\r\n", data.cmd[0], data.cmd[NUM_ACTUATORS-1]);
+		UART_send(response, n_bytes);  // echo the first and last values
+	} else {
+		n_bytes = sprintf(response, "\r\n Unrecognized command: %s\r\n", msg_hdr);
+		UART_send(response, n_bytes);
+	}
 
 
 }
@@ -1895,7 +1885,7 @@ static void run_state_machine(uint8_t byte)
 			}
 			break;
 		case(STOREMESSAGE):
-			if(counter == CMD_LENGTH-1){
+			if(counter == CMD_VEC_LENGTH-1){
 				next_state = ENDBYTE1;
 			}else{
 				next_state = STOREMESSAGE;
