@@ -94,17 +94,21 @@ int reading_rx_buffer = FALSE;
 int writing_tx_buffer = FALSE;
 int tx_collision = FALSE;
 int rx_collision = FALSE;
+volatile int rx_collision_count = 0;
+volatile int tx_collision_count = 0;
+volatile int cbuf_write_err = FALSE;
 
 /* Period timer flag */
 uint8_t ctrl_tmr_expired = FALSE;
 
 /* Command reference vector */
-int16_t cmd_ref[NUM_ACTUATORS] = {0};  //displacement commands in nanometers
+static int16_t cmd_ref[NUM_ACTUATORS] = {0};  //displacement commands in nanometers
 uint8_t cmd_bytes[NUM_ACTUATORS * 2] = {0};
 uint8_t new_cmd_ready = FALSE;
 
 /* actuators */
 actuator_t actuators[NUM_ACTUATORS];
+
 
 typedef enum UART_receive_state_t{
 	STARTBYTE1,
@@ -150,14 +154,14 @@ static void MX_SPI6_Init(void);
 static void UART_parse_message();
 
 /**
- * @function : UART_send(char* buf, int length)
+ * @function : UART_print(char* buf, int length)
  * @brief : writes a buffer to the tx_buffer and triggers a UART TX
  * @param : buffer pointer
  * @param : buffer length
  * @return : none
  * @author : Aaron Hunter
  */
-static void UART_send(char* buf, int length);
+static void UART_print(char* buf, int length);
 
 /**
  * @function : init_channels
@@ -211,11 +215,12 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+	/* init all actuators to a small displacement */
 	int i = {0};
 	for(i = 0; i < NUM_ACTUATORS; i++){
 		cmd_ref[i] = MICRON_1;
 	}
-
+	new_cmd_ready = TRUE; // tell main to update the actuator dutycycles
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -264,11 +269,11 @@ int main(void)
   init_channels(); // start PWM generation
   init_actuators(); // set up the actuators
 
-  /* Say hellow to the outside world */
+  /* Say hello to the outside world */
   uint8_t msg[BUFFER_SIZE];
   int msg_length = 0;
   msg_length = sprintf((char *) msg,"KASM Application Starting \r\n");
-  UART_send((char *) msg, msg_length);
+  UART_print((char *) msg, msg_length);
 
   /* USER CODE END 2 */
 
@@ -276,20 +281,25 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  /* diagnostics for the interrupts to be removed later */
 	  HAL_GPIO_WritePin(LED0_GPIO_Port, LED0_Pin,GPIO_PIN_RESET);
 	  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin,GPIO_PIN_RESET);
 	  if(message_ready == TRUE){
 		  UART_parse_message();
-		  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin,GPIO_PIN_RESET);
 		  message_ready = FALSE;
 	  }
 	  if(ctrl_tmr_expired == TRUE){
-		  new_cmd_ready = TRUE;  // testing
-		  if( new_cmd_ready == TRUE){
+		  if( new_cmd_ready == TRUE){ //only update commands on change
 			  update_commands();// update command targets
 			  new_cmd_ready = FALSE;
 		  }
 		  ctrl_tmr_expired = FALSE; //reset timer
+	  }
+
+	  if(cbuf_write_err == TRUE){
+		  msg_length = sprintf(msg, "Message read error ");
+		  UART_print(msg,msg_length);
+		  cbuf_write_err = FALSE;
 	  }
     /* USER CODE END WHILE */
 
@@ -1649,6 +1659,14 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 
+
+/**
+ * @function : HAL_TIM_PeriodElapsedCallback
+ * @brief : reads the message from the rx buffer and puts it into module level message buffer
+ * @param :  TIM_HandleTypeDef * htim
+ * @return : none
+ * @author : Aaron Hunter
+ */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	ctrl_tmr_expired = TRUE;
 }
@@ -1665,21 +1683,20 @@ static void UART_parse_message(void){
 	char msg_type[] = "CMD";
 	char response[BUFFER_LENGTH] = {0};
 	char msg_buffer[BUFFER_LENGTH] = {0};
-	union data {
-		char bytes[2*NUM_ACTUATORS];
-		int16_t cmd[NUM_ACTUATORS];
-		} data;
 
 	char msg_hdr[CMD_HDR_LENGTH + 1] = {0};  // allocate an extra char for null termination
 	int n_bytes = {0};
 	int i;
-	int length = get_num_elements(rxbuf_p);
 
 	reading_rx_buffer = TRUE; // block RX interrupt while reading from the buffer
+
+	int length = get_num_elements(rxbuf_p);
 	for (i=0; i < length; i++){
 		msg_buffer[i] = read_buffer(rxbuf_p);
 	}
+
 	reading_rx_buffer = FALSE;
+
 	if (rx_collision == TRUE){
 		UART4->CR1 |= USART_CR1_RXNEIE; // re-enable interrupt
 		rx_collision = FALSE; // reset collision flag
@@ -1687,30 +1704,30 @@ static void UART_parse_message(void){
 
 	memcpy(msg_hdr,msg_buffer,CMD_HDR_LENGTH*sizeof(uint8_t)); // Get the message type
 
-	if(strcmp(msg_type,msg_hdr)==0){
+	if(strcmp(msg_type,msg_hdr)==0 ){
 
-		memcpy(data.cmd, &msg_buffer[CMD_HDR_LENGTH],NUM_ACTUATORS*(sizeof(int16_t)));  // get the data
+		memcpy(cmd_ref, &msg_buffer[CMD_HDR_LENGTH],NUM_ACTUATORS*(sizeof(int16_t)));  // get the data
 
-		n_bytes = sprintf(response, "\r\n Values: %d, %d\r\n", data.cmd[0], data.cmd[NUM_ACTUATORS-1]);
-		UART_send(response, n_bytes);  // echo the first and last values
+		n_bytes = sprintf(response, " Values: %d, %d ", cmd_ref[0], cmd_ref[NUM_ACTUATORS-1]);
+		UART_print(response, n_bytes);  // echo the first and last values
+		new_cmd_ready = TRUE; // signal main to update the actuators with the new reference values
 	} else {
-		n_bytes = sprintf(response, "\r\n Unrecognized command: %s\r\n", msg_hdr);
-		UART_send(response, n_bytes);
+		n_bytes = sprintf(response, " Unrecognized command: %s ", msg_hdr);
+		UART_print(response, n_bytes);
 	}
-
 
 }
 
 
 /**
- * @function : UART_send(char* buf, int length)
+ * @function : UART_print(char* buf, int length)
  * @brief : writes a buffer to the tx_buffer and triggers a UART TX
  * @param : buffer pointer
  * @param : buffer length
  * @return : none
  * @author : Aaron Hunter
  */
-static void UART_send(char* buf, int length){
+static void UART_print(char* buf, int length){
 	int i;
 	writing_tx_buffer = TRUE;  // block the TX interrupt while writing data to the buffer
 	for (i = 0; i < length; i++){

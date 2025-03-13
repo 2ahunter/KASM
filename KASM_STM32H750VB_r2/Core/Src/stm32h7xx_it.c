@@ -68,7 +68,10 @@ extern int reading_rx_buffer;
 extern int writing_tx_buffer;
 extern int tx_collision;
 extern int rx_collision;
+extern int rx_collision_count;
+extern int tx_collision_count;
 extern int message_ready;
+extern int cbuf_write_err;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -229,6 +232,7 @@ void TIM1_UP_IRQHandler(void)
 void UART4_IRQHandler(void)
 {
   /* USER CODE BEGIN UART4_IRQn 0 */
+	int8_t response = 0;
 
 	/* handle RX interrupt */
 	if (UART4->CR1 & USART_CR1_RXNEIE) {
@@ -237,10 +241,16 @@ void UART4_IRQHandler(void)
 			if(reading_rx_buffer == TRUE) {
 				UART4->CR1 &= ~USART_CR1_RXNEIE; // disable interrupt it will be enabled in main
 				rx_collision = TRUE;// notify collision
+				rx_collision_count++;
 			} else {
 				uint8_t byte = UART4->RDR;
-				write_buffer(rxbuf_p, byte); // add character to rx buffer
-				if(byte == '\r') message_ready = TRUE;
+				response = write_buffer(rxbuf_p, byte); // add character to rx buffer
+				if(response == 0 ){
+					cbuf_write_err = TRUE;
+				}
+				if(byte == '\r') {
+					message_ready = TRUE;
+				}
 			}
 		}
 	}
@@ -250,6 +260,7 @@ void UART4_IRQHandler(void)
 		if (UART4->ISR & USART_ISR_TXE_TXFNF){
 			if (writing_tx_buffer == TRUE){ // buffer is being written into
 				tx_collision = TRUE;
+				tx_collision_count++;
 				UART4->CR1 &= ~USART_CR1_TXEIE; // disable interrupt. It is re-enabled in UART_send()
 			}
 			else if(is_buffer_empty(txbuf_p)){ // no characters to transmit
