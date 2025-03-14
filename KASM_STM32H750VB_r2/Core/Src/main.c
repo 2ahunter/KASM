@@ -46,6 +46,8 @@
 #define MICRON_1 1000
 #define CMD_VEC_LENGTH (NUM_ACTUATORS * 2)
 #define CMD_HDR_LENGTH 3
+#define END1 0xe1
+#define END2 0xe2
 
 /* USER CODE END PD */
 
@@ -88,7 +90,7 @@ circular_buffer_t *txbuf_p = &txbuf; /* UART transmit buffer pointer */
 
 
 /* UART flags and signals */
-int message_ready = FALSE;
+int msg_recvd = FALSE;
 //char msg_buffer[BUFFER_LENGTH];
 int reading_rx_buffer = FALSE;
 int writing_tx_buffer = FALSE;
@@ -111,11 +113,8 @@ actuator_t actuators[NUM_ACTUATORS];
 
 
 typedef enum UART_receive_state_t{
-	STARTBYTE1,
-	STARTBYTE2,
-	STOREMESSAGE,
-	ENDBYTE1,
-	ENDBYTE2
+	STORE_BYTE,
+	CHECK_FOR_END
 }UART_receive_state_t;
 
 /* USER CODE END PV */
@@ -284,9 +283,9 @@ int main(void)
 	  /* diagnostics for the interrupts to be removed later */
 	  HAL_GPIO_WritePin(LED0_GPIO_Port, LED0_Pin,GPIO_PIN_RESET);
 	  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin,GPIO_PIN_RESET);
-	  if(message_ready == TRUE){
+	  if(msg_recvd == TRUE){
 		  UART_parse_message();
-		  message_ready = FALSE;
+		  msg_recvd = FALSE;
 	  }
 	  if(ctrl_tmr_expired == TRUE){
 		  if( new_cmd_ready == TRUE){ //only update commands on change
@@ -1708,7 +1707,7 @@ static void UART_parse_message(void){
 
 		memcpy(cmd_ref, &msg_buffer[CMD_HDR_LENGTH],NUM_ACTUATORS*(sizeof(int16_t)));  // get the data
 
-		n_bytes = sprintf(response, " Values: %d, %d ", cmd_ref[0], cmd_ref[NUM_ACTUATORS-1]);
+		n_bytes = sprintf(response, " Values: %d, %d ", msg_buffer[length -3], msg_buffer[length -2]);
 		UART_print(response, n_bytes);  // echo the first and last values
 		new_cmd_ready = TRUE; // signal main to update the actuators with the new reference values
 	} else {
@@ -1871,59 +1870,31 @@ static void init_actuators(void){
 
 
 /**
- * @function : run_state_machine
+ * @function : run_RX_state_machine
  * @brief : parses external command messages
  * @param byte : received byte
  * @return none
  * @author Aaron Hunter
  * */
-static void run_state_machine(uint8_t byte)
+void run_RX_state_machine(uint8_t byte)
 {
-	static UART_receive_state_t current_state= STARTBYTE1;
-	static int counter = 0;
+	static UART_receive_state_t current_state= STORE_BYTE;
 	UART_receive_state_t next_state;
-	uint8_t start_bytes[2] = {1, 128};
-	uint8_t end_bytes[2] = {255, 127};
+	uint8_t end_bytes[2] = {0xe1, 0xe2};
 
 	switch(current_state){
-		case STARTBYTE1:
-			if(byte == start_bytes[0]){
-				next_state = STARTBYTE2;
-			} else{
-				next_state = current_state;
-			}
-			break;
-		case(STARTBYTE2):
-			if(byte == start_bytes[1]){
-				next_state = STOREMESSAGE;
-				counter = 0;
-			} else{
-				next_state = STARTBYTE1;
-			}
-			break;
-		case(STOREMESSAGE):
-			if(counter == CMD_VEC_LENGTH-1){
-				next_state = ENDBYTE1;
-			}else{
-				next_state = STOREMESSAGE;
-			}
-			cmd_bytes[counter] = byte;
-			counter++;
-			break;
-		case(ENDBYTE1):
+		case(STORE_BYTE):
 			if(byte == end_bytes[0]){
-				next_state = ENDBYTE2;
+				next_state = CHECK_FOR_END;
 			}else{
-				next_state = STARTBYTE1;
+				next_state = STORE_BYTE;
 			}
 			break;
-		case(ENDBYTE2):
+		case(CHECK_FOR_END):
 			if(byte == end_bytes[1]){
-				new_cmd_ready = TRUE;
-			}else{
-			HAL_GPIO_TogglePin(LED0_GPIO_Port,LED0_Pin);
+				msg_recvd = TRUE;
 			}
-			next_state = STARTBYTE1;
+			next_state = STORE_BYTE;
 			break;
 		default:
 			break;

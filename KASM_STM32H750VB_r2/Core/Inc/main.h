@@ -68,6 +68,14 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+/**
+ * @function : run_RX_state_machine
+ * @brief : parses external command messages
+ * @param byte : received byte
+ * @return none
+ * @author Aaron Hunter
+ * */
+void run_RX_state_machine(uint8_t byte);
 
 /* USER CODE END EFP */
 

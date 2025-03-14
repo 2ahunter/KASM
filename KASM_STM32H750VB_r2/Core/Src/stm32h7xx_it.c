@@ -70,7 +70,6 @@ extern int tx_collision;
 extern int rx_collision;
 extern int rx_collision_count;
 extern int tx_collision_count;
-extern int message_ready;
 extern int cbuf_write_err;
 /* USER CODE END EV */
 
@@ -240,16 +239,14 @@ void UART4_IRQHandler(void)
 		if(UART4->ISR & USART_ISR_RXNE_RXFNE){
 			if(reading_rx_buffer == TRUE) {
 				UART4->CR1 &= ~USART_CR1_RXNEIE; // disable interrupt it will be enabled in main
-				rx_collision = TRUE;// notify collision
+//				rx_collision = TRUE;// notify collision
 				rx_collision_count++;
 			} else {
 				uint8_t byte = UART4->RDR;
 				response = write_buffer(rxbuf_p, byte); // add character to rx buffer
+				run_RX_state_machine(byte);
 				if(response == 0 ){
 					cbuf_write_err = TRUE;
-				}
-				if(byte == '\r') {
-					message_ready = TRUE;
 				}
 			}
 		}
