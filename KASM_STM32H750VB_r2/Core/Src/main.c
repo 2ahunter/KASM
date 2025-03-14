@@ -6,7 +6,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2024 STMicroelectronics.
+  * Copyright (c) 2025 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -21,8 +21,12 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <math.h>
-#include <stdio.h>
+#include "circular_buffer.h"
+#include "actuators.h"
+#include "stdio.h"
+#include "stdlib.h"
+#include "string.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,17 +37,18 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-//Converts timer ticks to time scaling factor
-#define PERIOD_SCALE (1.0/24000)
-#define TICK_SCALE (1.0/240000000)
+#define TRUE 1
+#define FALSE 0
+#define BUFFER_SIZE 80
+#define MINDUTYCYCLE 20
+#define PERIOD (24000-1)
+#define MAXDUTYCYCLE PERIOD
+#define MICRON_1 1000
+#define CMD_VEC_LENGTH (NUM_ACTUATORS * 2)
+#define CMD_HDR_LENGTH 3
+#define END1 0xe1
+#define END2 0xe2
 
-//Circular buffer characteristics
-#define BUFFER_LENGTH 2048
-#define MESSAGE_LENGTH 128
-
-//Parameters for sorting/storing actuator commands
-#define CMD_LENGTH 27*2
-#define NUM_ACTUATORS 27
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -55,7 +60,14 @@
 
 HRTIM_HandleTypeDef hhrtim;
 
+I2C_HandleTypeDef hi2c4;
+
 LPTIM_HandleTypeDef hlptim1;
+LPTIM_HandleTypeDef hlptim2;
+LPTIM_HandleTypeDef hlptim3;
+
+SPI_HandleTypeDef hspi2;
+SPI_HandleTypeDef hspi6;
 
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
@@ -70,113 +82,52 @@ TIM_HandleTypeDef htim16;
 
 /* USER CODE BEGIN PV */
 
+/* UART transmit and receive buffers */
+circular_buffer_t rxbuf; /* UART receive buffer */
+circular_buffer_t txbuf; /* UART transmit buffer */
+circular_buffer_t *rxbuf_p = &rxbuf; /* UART receive buffer pointer */
+circular_buffer_t *txbuf_p = &txbuf; /* UART transmit buffer pointer */
 
-static const double VSS = 1.8; // fixed by PCB design
-char msg[80];
-int msg_length;
-uint8_t ctrl_tmr_expired = FALSE; //controller update flag
-static double ref=0;// reference (input) for control loop
-static double sine_vals[SIN_PERIOD] = {0};
-int data_ready = FALSE;
-uint8_t recvd_byte = 0;
 
-/*Use for checking initialization times over UART
-static long long int sys_timer = 0;
-char message[64] = {'\0'};
+/* UART flags and signals */
+int msg_recvd = FALSE;
+//char msg_buffer[BUFFER_LENGTH];
+int reading_rx_buffer = FALSE;
+int writing_tx_buffer = FALSE;
+int tx_collision = FALSE;
+int rx_collision = FALSE;
+volatile int rx_collision_count = 0;
+volatile int tx_collision_count = 0;
+volatile int cbuf_write_err = FALSE;
 
-//Counter for UART Output in Time-Scale
-	static long int period_ticks = 0;
-	char buffer[64];
+/* Period timer flag */
+uint8_t ctrl_tmr_expired = FALSE;
 
-	float read_TIM1_sec(){
-		float time = 0;
-		time = period_ticks * PERIOD_SCALE + TIM1->CNT * TICK_SCALE;
-		return time;
-	}
+/* Command reference vector */
+static int16_t cmd_ref[NUM_ACTUATORS] = {0};  //displacement commands in nanometers
+uint8_t cmd_bytes[NUM_ACTUATORS * 2] = {0};
+uint8_t new_cmd_ready = FALSE;
 
-//Counter for UART Output in clock ticks
-		uint64_t read_TIM1() {
-		//return TIM1->CNT;
-		 return TIM1->CNT + sys_timer;
-	  }
-*/
+/* actuators */
+actuator_t actuators[NUM_ACTUATORS];
 
-//Circular Buffer
-struct circular_buffer {
-	int read_index;
-	int write_index;
-	int size;
-	unsigned char data[BUFFER_LENGTH];
-};
 
-// Circular UART RX buffer
-struct circular_buffer rx_buffer;
-struct circular_buffer *rxp = &rx_buffer;
-
-//static int8_t rx_collision = FALSE;
-static int8_t reading_rx_buffer = FALSE;
-
-//Buffer storing elements from circular buffer
-static uint8_t cmd_bytes[BUFFER_LENGTH]= {0};
-static int8_t index = 0;
-
-//Flag to indicate a command is ready
-static uint8_t cmd_ready = FALSE;
-
-//output channels enum
-enum output{T1C1 = 0,
-			T1C2,
-			T1C3,
-			T1C4,
-			T2C1,
-			T4C1,
-			T4C2,
-			T4C3,
-			T4C4,
-			T5C2,
-			T5C3,
-			T8C4,
-			T12C2,
-			T13C1,
-			T14C1,
-			T15C1,
-			T15C2,
-			T16C1,
-			HRA1,
-			HRA2,
-			HRB1,
-			HRB2,
-			HRC1,
-			HRC2,
-			HRD1,
-			HRD2,
-			LPTIM
-} channel;
-
-// Array to store the command reference positions
-static int16_t cmd_ref[NUM_ACTUATORS] = {0};
-
-//State meachine elements
-typedef enum UART_receive_state{
-	startByte1,
-	startByte2,
-	storeMessage,
-	endByte1,
-	endByte2,
-	messageReady
-}state;
-
-// Command string delimiters
-uint8_t start_bytes[2] = {1, 128};
-uint8_t end_bytes[2] = {255, 127};
-
+typedef enum UART_receive_state_t{
+	STORE_BYTE,
+	CHECK_FOR_END
+}UART_receive_state_t;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MPU_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_HRTIM_Init(void);
+static void MX_I2C4_Init(void);
+static void MX_LPTIM1_Init(void);
+static void MX_LPTIM2_Init(void);
+static void MX_LPTIM3_Init(void);
+static void MX_SPI2_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM4_Init(void);
@@ -187,26 +138,71 @@ static void MX_TIM13_Init(void);
 static void MX_TIM14_Init(void);
 static void MX_TIM15_Init(void);
 static void MX_TIM16_Init(void);
-static void MX_HRTIM_Init(void);
-static void MX_LPTIM1_Init(void);
 static void MX_UART4_Init(void);
+static void MX_SPI6_Init(void);
 /* USER CODE BEGIN PFP */
-static void control_update(double ref);
-static uint16_t calc_dutycycle(uint16_t v_in, double vss);
-static void gen_sine(void);
-void UART_update();
-void command_update();
-static void run_state_machine(uint8_t byte);
-static void init_buffer(struct circular_buffer *buf);
-static int8_t is_buffer_empty(struct circular_buffer *buf);
-static int8_t is_buffer_full(struct circular_buffer *buf);
-static int8_t write_buffer(struct circular_buffer *buf, unsigned char c);
-static unsigned char read_from_buffer(struct circular_buffer *buf);
-static int get_num_elements(struct circular_buffer *buf);
+
+
+/**
+ * @function : UART_parse_message
+ * @brief : reads the message from the rx buffer and puts it into module level message buffer
+ * @param :  none
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void UART_parse_message();
+
+/**
+ * @function : UART_print(char* buf, int length)
+ * @brief : writes a buffer to the tx_buffer and triggers a UART TX
+ * @param : buffer pointer
+ * @param : buffer length
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void UART_print(char* buf, int length);
+
+/**
+ * @function : init_channels
+ * @brief : initializes all the PWM channels
+ * @param :  none
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void init_channels(void);
+
+/**
+ * @function : init_actuators
+ * @brief : Creates and populates actuator array
+ * @param :  none
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void init_actuators(void);
+
+/**
+ * @function : update_commands
+ * @brief : sets the new actuator command targets
+ * @return none
+ * @author Aaron Hunter
+ */
+static void update_commands(void);
+
+
+/**
+ * @function calc_dutycycle(cmd)
+ * @param cmd
+ * @return dutycycle
+ * @authoer Aaron Hunter
+ */
+uint16_t calc_dutycycle(int16_t cmd);
+
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 
 /* USER CODE END 0 */
 
@@ -218,11 +214,13 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+	/* init all actuators to a small displacement */
+	int i = {0};
+	for(i = 0; i < NUM_ACTUATORS; i++){
+		cmd_ref[i] = MICRON_1;
+	}
+	new_cmd_ready = TRUE; // tell main to update the actuator dutycycles
   /* USER CODE END 1 */
-
-  /* MPU Configuration--------------------------------------------------------*/
-  MPU_Config();
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -230,6 +228,11 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+
+  /* initialize the circular buffers */
+  init_buffer(rxbuf_p);
+  init_buffer(txbuf_p);
+
 
   /* USER CODE END Init */
 
@@ -242,6 +245,12 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_HRTIM_Init();
+  MX_I2C4_Init();
+  MX_LPTIM1_Init();
+  MX_LPTIM2_Init();
+  MX_LPTIM3_Init();
+  MX_SPI2_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
   MX_TIM4_Init();
@@ -252,148 +261,45 @@ int main(void)
   MX_TIM14_Init();
   MX_TIM15_Init();
   MX_TIM16_Init();
-  MX_HRTIM_Init();
-  MX_LPTIM1_Init();
   MX_UART4_Init();
+  MX_SPI6_Init();
   /* USER CODE BEGIN 2 */
 
+  init_channels(); // start PWM generation
+  init_actuators(); // set up the actuators
 
-  //Timer 1
-  HAL_TIM_Base_Start_IT(&htim1);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);    //Starts the PWM on each of the desired channels
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
-  HAL_GPIO_WritePin(TIM1_CH1_PH_GPIO_Port, TIM1_CH1_PH_Pin, GPIO_PIN_SET);   //Sets the pin to 1
-  HAL_GPIO_WritePin(TIM1_CH2_PH_GPIO_Port, TIM1_CH2_PH_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(TIM1_CH3_PH_GPIO_Port, TIM1_CH3_PH_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(TIM1_CH4_PH_GPIO_Port, TIM1_CH4_PH_Pin, GPIO_PIN_SET);
-
-  	  	  	/* Example of how to check Initialization time, timer count, and period counts over UART
-			//Timer 1 Init. Message Over UART
-			sprintf(message, "Tim1 Init: %d \n\r", read_TIM1());
-			HAL_UART_Transmit(&huart4, (uint8_t*)message, sizeof(message), 100);
-
-  	  	  	sprintf(buffer, "Tim1 sec: %e \n\r", read_TIM1_sec());
-  			HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
-  			sprintf(buffer, "Tim1 Cnt: %d \n\r", TIM1->CNT);
-  			HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
-  			sprintf(buffer, "Per Cnt: %d \n\r", period_ticks);
-  			HAL_UART_Transmit(&huart4, (uint8_t*)buffer, sizeof(buffer), HAL_MAX_DELAY);
-  			//End UART Transmit
-  			 *
-  			 */
-  //End Timer 1
-
-  //Timer 2
-  HAL_TIM_Base_Start_IT(&htim2);
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-  HAL_GPIO_WritePin(TIM2_CH1_PH_GPIO_Port, TIM2_CH1_PH_Pin, GPIO_PIN_SET);
-  //End Timer 2
-
-  //Timer 4
-  HAL_TIM_Base_Start_IT(&htim4);
-  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
-  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);
-  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
-  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4);
-  HAL_GPIO_WritePin(TIM4_CH1_PH_GPIO_Port, TIM4_CH1_PH_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(TIM4_CH2_PH_GPIO_Port, TIM4_CH2_PH_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(TIM4_CH3_PH_GPIO_Port, TIM4_CH3_PH_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(TIM4_CH4_PH_GPIO_Port, TIM4_CH4_PH_Pin, GPIO_PIN_SET);
-  //End Timer 4
-
-  //Timer 5
-  HAL_TIM_Base_Start_IT(&htim5);
-  HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_2);
-  HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3);
-  HAL_GPIO_WritePin(TIM5_CH2_PH_GPIO_Port, TIM5_CH2_PH_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(TIM5_CH3_PH_GPIO_Port, TIM5_CH3_PH_Pin, GPIO_PIN_SET);
-  //End Timer 5
-
-  //Timer 8
-  HAL_TIM_Base_Start_IT(&htim8);
-  HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_4);
-  HAL_GPIO_WritePin(TIM8_CH4_PH_GPIO_Port, TIM8_CH4_PH_Pin, GPIO_PIN_SET);
-  //End Timer 8
-
-  //Timer 12
-  HAL_TIM_Base_Start_IT(&htim12);
-  HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
-  HAL_GPIO_WritePin(TIM12_CH2_PH_GPIO_Port, TIM12_CH2_PH_Pin, GPIO_PIN_SET);
-  //End Timer 12
-
-  //Timer 13
-  HAL_TIM_Base_Start_IT(&htim13);
-  HAL_TIM_PWM_Start(&htim13, TIM_CHANNEL_1);
-  HAL_GPIO_WritePin(TIM13_CH1_PH_GPIO_Port, TIM13_CH1_PH_Pin, GPIO_PIN_SET);
-  //End Timer 13
-
-  //Timer 14
-  HAL_TIM_Base_Start_IT(&htim14);
-  HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1);
-  HAL_GPIO_WritePin(TIM14_CH1_PH_GPIO_Port, TIM14_CH1_PH_Pin, GPIO_PIN_SET);
-  //End Timer 14
-
-  //Timer 15
-  HAL_TIM_Base_Start_IT(&htim15);
-  HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1);
-  HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_2);
-  HAL_GPIO_WritePin(TIM15_CH1_PH_GPIO_Port, TIM15_CH1_PH_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(TIM15_CH2_PH_GPIO_Port, TIM15_CH2_PH_Pin, GPIO_PIN_SET);
-  //End Timer 15
-
-  //Timer 16
-  HAL_TIM_Base_Start_IT(&htim16);
-  HAL_TIM_PWM_Start(&htim16, TIM_CHANNEL_1);
-  HAL_GPIO_WritePin(TIM16_CH1_PH_GPIO_Port, TIM16_CH1_PH_Pin, GPIO_PIN_SET);
-  //End Timer 16
-
-  //HRTIM CODE GOES HERE *******
-     // Enable output
-  HRTIM1->sCommonRegs.OENR = HRTIM_OENR_TA1OEN + HRTIM_OENR_TA2OEN +
-     	 	HRTIM_OENR_TB1OEN + HRTIM_OENR_TB2OEN + HRTIM_OENR_TC1OEN + HRTIM_OENR_TC2OEN + HRTIM_OENR_TD1OEN + HRTIM_OENR_TD2OEN;
-     //Start Timer
-  HRTIM1->sMasterRegs.MCR = HRTIM_MCR_TACEN + HRTIM_MCR_TBCEN + HRTIM_MCR_TCCEN + HRTIM_MCR_TDCEN;
-  //END HRTIM CODE
-
-	//Low-Power Timer
-  HAL_LPTIM_Counter_Start_IT(&hlptim1, LPTIM_ARR_ARR);
-  HAL_LPTIM_PWM_Start(&hlptim1, LPTIM_ARR_ARR, LPTIM_CMP_CMP);
-  HAL_GPIO_WritePin(LPTIM1_OUT_PH_GPIO_Port, LPTIM1_OUT_PH_Pin, GPIO_PIN_SET);
-  LPTIM1->ARR = (12000 - 1);
-  //End Low Power Timer
-
-  //Timer Synchronization
-  TIM1->CNT = 0;
-  TIM2->CNT = 0;
-  TIM4->CNT = 0;
-  TIM5->CNT = 0;
-  TIM8->CNT = 0;
-  TIM12->CNT = 0;
-  TIM13->CNT = 0;
-  TIM14->CNT = 0;
-  TIM15->CNT = 0;
-  TIM16->CNT = 0;
-  LPTIM1->CNT = 0;
-
-  // used to send sine wave output to the actuators if so desired
-  gen_sine();
+  /* Say hello to the outside world */
+  uint8_t msg[BUFFER_SIZE];
+  int msg_length = 0;
+  msg_length = sprintf((char *) msg,"KASM Application Starting \r\n");
+  UART_print((char *) msg, msg_length);
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  init_buffer(rxp);
-  data_ready = FALSE;
-//  HAL_UART_Receive_IT(&huart4, rx_buff, sizeof(rx_buff));
-
   while (1)
   {
-	  if(ctrl_tmr_expired == TRUE) control_update(ref); //Sets flag for timer interrupt
-	  if(data_ready == TRUE) UART_update(); //Sets flag when a message is received
-	  if(cmd_ready == TRUE) command_update(); //Sets flag once message is ready to send
+	  /* diagnostics for the interrupts to be removed later */
+	  HAL_GPIO_WritePin(LED0_GPIO_Port, LED0_Pin,GPIO_PIN_RESET);
+	  HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin,GPIO_PIN_RESET);
+	  if(msg_recvd == TRUE){
+		  UART_parse_message();
+		  msg_recvd = FALSE;
+	  }
+	  if(ctrl_tmr_expired == TRUE){
+		  if( new_cmd_ready == TRUE){ //only update commands on change
+			  update_commands();// update command targets
+			  new_cmd_ready = FALSE;
+		  }
+		  ctrl_tmr_expired = FALSE; //reset timer
+	  }
 
+	  if(cbuf_write_err == TRUE){
+		  msg_length = sprintf(msg, "Message read error ");
+		  UART_print(msg,msg_length);
+		  cbuf_write_err = FALSE;
+	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -416,11 +322,6 @@ void SystemClock_Config(void)
 
   /** Configure the main internal regulator output voltage
   */
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-
-  while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
-
-  __HAL_RCC_SYSCFG_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE0);
 
   while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
@@ -435,7 +336,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLM = 2;
   RCC_OscInitStruct.PLL.PLLN = 80;
   RCC_OscInitStruct.PLL.PLLP = 2;
-  RCC_OscInitStruct.PLL.PLLQ = 2;
+  RCC_OscInitStruct.PLL.PLLQ = 15;
   RCC_OscInitStruct.PLL.PLLR = 2;
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
@@ -484,7 +385,6 @@ static void MX_HRTIM_Init(void)
 
   /* USER CODE BEGIN HRTIM_Init 1 */
 
-
   /* USER CODE END HRTIM_Init 1 */
   hhrtim.Instance = HRTIM1;
   hhrtim.Init.HRTIMInterruptResquests = HRTIM_IT_NONE;
@@ -505,7 +405,7 @@ static void MX_HRTIM_Init(void)
   {
     Error_Handler();
   }
-  pTimeBaseCfg.Period = 24000-1;
+  pTimeBaseCfg.Period = 24000 -1;
   pTimeBaseCfg.RepetitionCounter = 0x00;
   pTimeBaseCfg.PrescalerRatio = HRTIM_PRESCALERRATIO_DIV1;
   pTimeBaseCfg.Mode = HRTIM_MODE_CONTINUOUS;
@@ -551,7 +451,7 @@ static void MX_HRTIM_Init(void)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = 0x00005A00/2;
+  pCompareCfg.CompareValue = (24000-1)/1000;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_1, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
@@ -590,27 +490,33 @@ static void MX_HRTIM_Init(void)
   {
     Error_Handler();
   }
+  pOutputCfg.SetSource = HRTIM_OUTPUTSET_RESYNC|HRTIM_OUTPUTSET_TIMPER;
   if (HAL_HRTIM_WaveformOutputConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_B, HRTIM_OUTPUT_TB1, &pOutputCfg) != HAL_OK)
   {
     Error_Handler();
   }
+  pOutputCfg.SetSource = HRTIM_OUTPUTSET_TIMPER|HRTIM_OUTPUTSET_RESYNC;
   if (HAL_HRTIM_WaveformOutputConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_C, HRTIM_OUTPUT_TC1, &pOutputCfg) != HAL_OK)
   {
     Error_Handler();
   }
+  pOutputCfg.SetSource = HRTIM_OUTPUTSET_TIMPER;
   if (HAL_HRTIM_WaveformOutputConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_D, HRTIM_OUTPUT_TD1, &pOutputCfg) != HAL_OK)
   {
     Error_Handler();
   }
+  pOutputCfg.SetSource = HRTIM_OUTPUTSET_TIMPER|HRTIM_OUTPUTSET_EEV_1;
   pOutputCfg.ResetSource = HRTIM_OUTPUTRESET_TIMCMP2;
   if (HAL_HRTIM_WaveformOutputConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_A, HRTIM_OUTPUT_TA2, &pOutputCfg) != HAL_OK)
   {
     Error_Handler();
   }
+  pOutputCfg.SetSource = HRTIM_OUTPUTSET_RESYNC|HRTIM_OUTPUTSET_TIMPER;
   if (HAL_HRTIM_WaveformOutputConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_B, HRTIM_OUTPUT_TB2, &pOutputCfg) != HAL_OK)
   {
     Error_Handler();
   }
+  pOutputCfg.SetSource = HRTIM_OUTPUTSET_TIMPER;
   if (HAL_HRTIM_WaveformOutputConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_C, HRTIM_OUTPUT_TC2, &pOutputCfg) != HAL_OK)
   {
     Error_Handler();
@@ -619,6 +525,7 @@ static void MX_HRTIM_Init(void)
   {
     Error_Handler();
   }
+  pTimeBaseCfg.Period = 24000-1;
   if (HAL_HRTIM_TimeBaseConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_B, &pTimeBaseCfg) != HAL_OK)
   {
     Error_Handler();
@@ -631,14 +538,17 @@ static void MX_HRTIM_Init(void)
   {
     Error_Handler();
   }
+  pCompareCfg.CompareValue = (24000 -1)/1000;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_C, HRTIM_COMPAREUNIT_1, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
   }
+  pTimeBaseCfg.Period = 24000 -1;
   if (HAL_HRTIM_TimeBaseConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_D, &pTimeBaseCfg) != HAL_OK)
   {
     Error_Handler();
   }
+  pCompareCfg.CompareValue = (24000-1)/1000;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim, HRTIM_TIMERINDEX_TIMER_D, HRTIM_COMPAREUNIT_1, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
@@ -647,6 +557,54 @@ static void MX_HRTIM_Init(void)
 
   /* USER CODE END HRTIM_Init 2 */
   HAL_HRTIM_MspPostInit(&hhrtim);
+
+}
+
+/**
+  * @brief I2C4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C4_Init(void)
+{
+
+  /* USER CODE BEGIN I2C4_Init 0 */
+
+  /* USER CODE END I2C4_Init 0 */
+
+  /* USER CODE BEGIN I2C4_Init 1 */
+
+  /* USER CODE END I2C4_Init 1 */
+  hi2c4.Instance = I2C4;
+  hi2c4.Init.Timing = 0x307075B1;
+  hi2c4.Init.OwnAddress1 = 0;
+  hi2c4.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c4.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c4.Init.OwnAddress2 = 0;
+  hi2c4.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c4.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c4.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c4, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c4, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C4_Init 2 */
+
+  /* USER CODE END I2C4_Init 2 */
 
 }
 
@@ -669,7 +627,7 @@ static void MX_LPTIM1_Init(void)
   hlptim1.Init.Clock.Source = LPTIM_CLOCKSOURCE_APBCLOCK_LPOSC;
   hlptim1.Init.Clock.Prescaler = LPTIM_PRESCALER_DIV1;
   hlptim1.Init.Trigger.Source = LPTIM_TRIGSOURCE_SOFTWARE;
-  hlptim1.Init.OutputPolarity = LPTIM_OUTPUTPOLARITY_LOW;
+  hlptim1.Init.OutputPolarity = LPTIM_OUTPUTPOLARITY_HIGH;
   hlptim1.Init.UpdateMode = LPTIM_UPDATE_IMMEDIATE;
   hlptim1.Init.CounterSource = LPTIM_COUNTERSOURCE_INTERNAL;
   hlptim1.Init.Input1Source = LPTIM_INPUT1SOURCE_GPIO;
@@ -681,6 +639,168 @@ static void MX_LPTIM1_Init(void)
   /* USER CODE BEGIN LPTIM1_Init 2 */
 
   /* USER CODE END LPTIM1_Init 2 */
+
+}
+
+/**
+  * @brief LPTIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_LPTIM2_Init(void)
+{
+
+  /* USER CODE BEGIN LPTIM2_Init 0 */
+
+  /* USER CODE END LPTIM2_Init 0 */
+
+  /* USER CODE BEGIN LPTIM2_Init 1 */
+
+  /* USER CODE END LPTIM2_Init 1 */
+  hlptim2.Instance = LPTIM2;
+  hlptim2.Init.Clock.Source = LPTIM_CLOCKSOURCE_APBCLOCK_LPOSC;
+  hlptim2.Init.Clock.Prescaler = LPTIM_PRESCALER_DIV1;
+  hlptim2.Init.Trigger.Source = LPTIM_TRIGSOURCE_SOFTWARE;
+  hlptim2.Init.OutputPolarity = LPTIM_OUTPUTPOLARITY_HIGH;
+  hlptim2.Init.UpdateMode = LPTIM_UPDATE_IMMEDIATE;
+  hlptim2.Init.CounterSource = LPTIM_COUNTERSOURCE_INTERNAL;
+  hlptim2.Init.Input1Source = LPTIM_INPUT1SOURCE_GPIO;
+  hlptim2.Init.Input2Source = LPTIM_INPUT2SOURCE_GPIO;
+  if (HAL_LPTIM_Init(&hlptim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN LPTIM2_Init 2 */
+
+  /* USER CODE END LPTIM2_Init 2 */
+
+}
+
+/**
+  * @brief LPTIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_LPTIM3_Init(void)
+{
+
+  /* USER CODE BEGIN LPTIM3_Init 0 */
+
+  /* USER CODE END LPTIM3_Init 0 */
+
+  /* USER CODE BEGIN LPTIM3_Init 1 */
+
+  /* USER CODE END LPTIM3_Init 1 */
+  hlptim3.Instance = LPTIM3;
+  hlptim3.Init.Clock.Source = LPTIM_CLOCKSOURCE_APBCLOCK_LPOSC;
+  hlptim3.Init.Clock.Prescaler = LPTIM_PRESCALER_DIV1;
+  hlptim3.Init.Trigger.Source = LPTIM_TRIGSOURCE_SOFTWARE;
+  hlptim3.Init.OutputPolarity = LPTIM_OUTPUTPOLARITY_HIGH;
+  hlptim3.Init.UpdateMode = LPTIM_UPDATE_IMMEDIATE;
+  hlptim3.Init.CounterSource = LPTIM_COUNTERSOURCE_INTERNAL;
+  hlptim3.Init.Input1Source = LPTIM_INPUT1SOURCE_GPIO;
+  if (HAL_LPTIM_Init(&hlptim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN LPTIM3_Init 2 */
+
+  /* USER CODE END LPTIM3_Init 2 */
+
+}
+
+/**
+  * @brief SPI2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI2_Init(void)
+{
+
+  /* USER CODE BEGIN SPI2_Init 0 */
+
+  /* USER CODE END SPI2_Init 0 */
+
+  /* USER CODE BEGIN SPI2_Init 1 */
+
+  /* USER CODE END SPI2_Init 1 */
+  /* SPI2 parameter configuration*/
+  hspi2.Instance = SPI2;
+  hspi2.Init.Mode = SPI_MODE_MASTER;
+  hspi2.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi2.Init.DataSize = SPI_DATASIZE_4BIT;
+  hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi2.Init.NSS = SPI_NSS_SOFT;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi2.Init.CRCPolynomial = 0x0;
+  hspi2.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
+  hspi2.Init.NSSPolarity = SPI_NSS_POLARITY_LOW;
+  hspi2.Init.FifoThreshold = SPI_FIFO_THRESHOLD_01DATA;
+  hspi2.Init.TxCRCInitializationPattern = SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
+  hspi2.Init.RxCRCInitializationPattern = SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
+  hspi2.Init.MasterSSIdleness = SPI_MASTER_SS_IDLENESS_00CYCLE;
+  hspi2.Init.MasterInterDataIdleness = SPI_MASTER_INTERDATA_IDLENESS_00CYCLE;
+  hspi2.Init.MasterReceiverAutoSusp = SPI_MASTER_RX_AUTOSUSP_DISABLE;
+  hspi2.Init.MasterKeepIOState = SPI_MASTER_KEEP_IO_STATE_DISABLE;
+  hspi2.Init.IOSwap = SPI_IO_SWAP_DISABLE;
+  if (HAL_SPI_Init(&hspi2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI2_Init 2 */
+
+  /* USER CODE END SPI2_Init 2 */
+
+}
+
+/**
+  * @brief SPI6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI6_Init(void)
+{
+
+  /* USER CODE BEGIN SPI6_Init 0 */
+
+  /* USER CODE END SPI6_Init 0 */
+
+  /* USER CODE BEGIN SPI6_Init 1 */
+
+  /* USER CODE END SPI6_Init 1 */
+  /* SPI6 parameter configuration*/
+  hspi6.Instance = SPI6;
+  hspi6.Init.Mode = SPI_MODE_SLAVE;
+  hspi6.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi6.Init.DataSize = SPI_DATASIZE_16BIT;
+  hspi6.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi6.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi6.Init.NSS = SPI_NSS_SOFT;
+  hspi6.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi6.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi6.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi6.Init.CRCPolynomial = 0x0;
+  hspi6.Init.NSSPMode = SPI_NSS_PULSE_DISABLE;
+  hspi6.Init.NSSPolarity = SPI_NSS_POLARITY_LOW;
+  hspi6.Init.FifoThreshold = SPI_FIFO_THRESHOLD_01DATA;
+  hspi6.Init.TxCRCInitializationPattern = SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
+  hspi6.Init.RxCRCInitializationPattern = SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
+  hspi6.Init.MasterSSIdleness = SPI_MASTER_SS_IDLENESS_00CYCLE;
+  hspi6.Init.MasterInterDataIdleness = SPI_MASTER_INTERDATA_IDLENESS_00CYCLE;
+  hspi6.Init.MasterReceiverAutoSusp = SPI_MASTER_RX_AUTOSUSP_DISABLE;
+  hspi6.Init.MasterKeepIOState = SPI_MASTER_KEEP_IO_STATE_DISABLE;
+  hspi6.Init.IOSwap = SPI_IO_SWAP_DISABLE;
+  if (HAL_SPI_Init(&hspi6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI6_Init 2 */
+
+  /* USER CODE END SPI6_Init 2 */
 
 }
 
@@ -726,13 +846,13 @@ static void MX_TIM1_Init(void)
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_ENABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
   {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -788,7 +908,6 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 0 */
 
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 
@@ -798,18 +917,9 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 24000-1;
+  htim2.Init.Period = 24000 -1;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
@@ -821,10 +931,15 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000 -1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.Pulse = (24000-1)/1000;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
   }
@@ -848,6 +963,7 @@ static void MX_TIM4_Init(void)
   /* USER CODE END TIM4_Init 0 */
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_SlaveConfigTypeDef sSlaveConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 
@@ -859,7 +975,7 @@ static void MX_TIM4_Init(void)
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim4.Init.Period = 24000-1;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
   {
     Error_Handler();
@@ -873,20 +989,27 @@ static void MX_TIM4_Init(void)
   {
     Error_Handler();
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_RESET;
+  sSlaveConfig.InputTrigger = TIM_TS_ITR0;
+  if (HAL_TIM_SlaveConfigSynchro(&htim4, &sSlaveConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
   {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000 -1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
+  sConfigOC.Pulse = (24000-1)/1000;
   if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
@@ -918,7 +1041,7 @@ static void MX_TIM5_Init(void)
 
   /* USER CODE END TIM5_Init 0 */
 
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_SlaveConfigTypeDef sSlaveConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 
@@ -928,19 +1051,20 @@ static void MX_TIM5_Init(void)
   htim5.Instance = TIM5;
   htim5.Init.Prescaler = 0;
   htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim5.Init.Period = 24000-1;
+  htim5.Init.Period = (24000-1);
   htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim5) != HAL_OK)
   {
     Error_Handler();
   }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim5, &sClockSourceConfig) != HAL_OK)
+  if (HAL_TIM_PWM_Init(&htim5) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_Init(&htim5) != HAL_OK)
+  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_RESET;
+  sSlaveConfig.InputTrigger = TIM_TS_ITR0;
+  if (HAL_TIM_SlaveConfigSynchro(&htim5, &sSlaveConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -951,7 +1075,7 @@ static void MX_TIM5_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim5, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
@@ -981,7 +1105,7 @@ static void MX_TIM8_Init(void)
 
   /* USER CODE END TIM8_Init 0 */
 
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_SlaveConfigTypeDef sSlaveConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
   TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
@@ -992,7 +1116,7 @@ static void MX_TIM8_Init(void)
   htim8.Instance = TIM8;
   htim8.Init.Prescaler = 0;
   htim8.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim8.Init.Period = 24000-1;
+  htim8.Init.Period = 24000 -1;
   htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim8.Init.RepetitionCounter = 0;
   htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
@@ -1000,12 +1124,13 @@ static void MX_TIM8_Init(void)
   {
     Error_Handler();
   }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim8, &sClockSourceConfig) != HAL_OK)
+  if (HAL_TIM_PWM_Init(&htim8) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_Init(&htim8) != HAL_OK)
+  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_RESET;
+  sSlaveConfig.InputTrigger = TIM_TS_ITR0;
+  if (HAL_TIM_SlaveConfigSynchro(&htim8, &sSlaveConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -1017,7 +1142,7 @@ static void MX_TIM8_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
@@ -1060,7 +1185,7 @@ static void MX_TIM12_Init(void)
 
   /* USER CODE END TIM12_Init 0 */
 
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_SlaveConfigTypeDef sSlaveConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 
@@ -1077,12 +1202,13 @@ static void MX_TIM12_Init(void)
   {
     Error_Handler();
   }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim12, &sClockSourceConfig) != HAL_OK)
+  if (HAL_TIM_PWM_Init(&htim12) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_Init(&htim12) != HAL_OK)
+  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_RESET;
+  sSlaveConfig.InputTrigger = TIM_TS_ITR0;
+  if (HAL_TIM_SlaveConfigSynchro(&htim12, &sSlaveConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -1093,7 +1219,7 @@ static void MX_TIM12_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim12, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
@@ -1129,7 +1255,7 @@ static void MX_TIM13_Init(void)
   htim13.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim13.Init.Period = 24000-1;
   htim13.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim13.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  htim13.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim13) != HAL_OK)
   {
     Error_Handler();
@@ -1139,7 +1265,7 @@ static void MX_TIM13_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim13, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
@@ -1175,7 +1301,7 @@ static void MX_TIM14_Init(void)
   htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim14.Init.Period = 24000-1;
   htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim14) != HAL_OK)
   {
     Error_Handler();
@@ -1185,7 +1311,7 @@ static void MX_TIM14_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim14, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
@@ -1211,7 +1337,7 @@ static void MX_TIM15_Init(void)
 
   /* USER CODE END TIM15_Init 0 */
 
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_SlaveConfigTypeDef sSlaveConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
   TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
@@ -1225,17 +1351,18 @@ static void MX_TIM15_Init(void)
   htim15.Init.Period = 24000-1;
   htim15.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim15.Init.RepetitionCounter = 0;
-  htim15.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  htim15.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim15) != HAL_OK)
   {
     Error_Handler();
   }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim15, &sClockSourceConfig) != HAL_OK)
+  if (HAL_TIM_PWM_Init(&htim15) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_Init(&htim15) != HAL_OK)
+  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_RESET;
+  sSlaveConfig.InputTrigger = TIM_TS_ITR0;
+  if (HAL_TIM_SlaveConfigSynchro(&htim15, &sSlaveConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -1246,7 +1373,7 @@ static void MX_TIM15_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -1303,7 +1430,7 @@ static void MX_TIM16_Init(void)
   htim16.Init.Period = 24000-1;
   htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim16.Init.RepetitionCounter = 0;
-  htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim16) != HAL_OK)
   {
     Error_Handler();
@@ -1313,7 +1440,7 @@ static void MX_TIM16_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = (24000-1)/1000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -1416,7 +1543,14 @@ static void MX_UART4_Init(void)
   {
   }
   /* USER CODE BEGIN UART4_Init 2 */
+
+  /* CR1 register settings:
+   * TE = Transmitter enable
+   * RE = Receiver enable
+   * UE = USART enable
+   * RXNEIE = Receive data register not empty interrupt enable  */
   UART4->CR1 |= (USART_CR1_TE|USART_CR1_RXNEIE|USART_CR1_RE|USART_CR1_UE);
+
   /* USER CODE END UART4_Init 2 */
 
 }
@@ -1441,168 +1575,326 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOE, TIM1_CH3_PH_Pin|TIM1_CH4_PH_Pin|TIM2_CH1_PH_Pin|TIM8_CH4_PH_Pin
-                          |TIM12_CH2_PH_Pin|TIM13_CH1_PH_Pin|TIM14_CH1_PH_Pin|TIM15_CH1_PH_Pin
-                          |TIM1_CH1_PH_Pin|TIM1_CH2_PH_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOE, TIM1_CH3_PHASE_Pin|TIM1_CH4_PHASE_Pin|TIM2_CH1_PHASE_Pin|TIM8_CH4_PHASE_Pin
+                          |TIM12_CH2_PHASE_Pin|TIM13_CH1_PHASE_Pin|TIM14_CH1_PHASE_Pin|TIM15_CH1_PHASE_Pin
+                          |TIM1_CH1_PHASE_Pin|TIM1_CH2_PHASE_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, TIM4_CH4_PH_Pin|TIM5_CH2_PH_Pin|TIM5_CH3_PH_Pin|TIM4_CH3_PH_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, TIM4_CH4_PHASE_Pin|TIM5_CH2_PHASE_Pin|TIM5_CH3_PHASE_Pin|TIM4_CH3_PHASE_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, TIM4_CH1_PH_Pin|TIM4_CH2_PH_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, LED0_Pin|LED1_Pin|LED2_Pin|TIM4_CH1_PHASE_Pin
+                          |TIM4_CH2_PHASE_Pin|SPI6_MUX_OE_n_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, HRTIM_CHC1_PH_Pin|HRTIM_CHC2_PH_Pin|HRTIM_CHD1_PH_Pin|HRTIM_CHD2_PH_Pin
-                          |TIM15_CH2_PH_Pin|TIM16_CH1_PH_Pin|LPTIM1_OUT_PH_Pin|HRTIM_CHA1_PH_Pin
-                          |HRTIM_CHA2_PH_Pin|HRTIM_CHB1_PH_Pin|HRTIM_CHB2_PH_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOD, HRTIM_CHC1_PHASE_Pin|HRTIM_CHC2_PHASE_Pin|HRTIM_CHD1_PHASE_Pin|HRTIM_CHD2_PHASE_Pin
+                          |TIM15_CH2_PHASE_Pin|TIM16_CH1_PHASE_Pin|HRTIM_CHA1_PHASE_Pin|HRTIM_CHA2_PHASE_Pin
+                          |HRTIM_CHB1_PHASE_Pin|HRTIM_CHB2_PHASE_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : TIM1_CH3_PH_Pin TIM1_CH4_PH_Pin TIM2_CH1_PH_Pin TIM8_CH4_PH_Pin
-                           TIM12_CH2_PH_Pin TIM13_CH1_PH_Pin TIM14_CH1_PH_Pin TIM15_CH1_PH_Pin
-                           TIM1_CH1_PH_Pin TIM1_CH2_PH_Pin */
-  GPIO_InitStruct.Pin = TIM1_CH3_PH_Pin|TIM1_CH4_PH_Pin|TIM2_CH1_PH_Pin|TIM8_CH4_PH_Pin
-                          |TIM12_CH2_PH_Pin|TIM13_CH1_PH_Pin|TIM14_CH1_PH_Pin|TIM15_CH1_PH_Pin
-                          |TIM1_CH1_PH_Pin|TIM1_CH2_PH_Pin;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(ACTUATOR_ENABLE_MCU_GPIO_Port, ACTUATOR_ENABLE_MCU_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : TIM1_CH3_PHASE_Pin TIM1_CH4_PHASE_Pin TIM2_CH1_PHASE_Pin TIM8_CH4_PHASE_Pin
+                           TIM12_CH2_PHASE_Pin TIM13_CH1_PHASE_Pin TIM14_CH1_PHASE_Pin TIM15_CH1_PHASE_Pin
+                           TIM1_CH1_PHASE_Pin TIM1_CH2_PHASE_Pin */
+  GPIO_InitStruct.Pin = TIM1_CH3_PHASE_Pin|TIM1_CH4_PHASE_Pin|TIM2_CH1_PHASE_Pin|TIM8_CH4_PHASE_Pin
+                          |TIM12_CH2_PHASE_Pin|TIM13_CH1_PHASE_Pin|TIM14_CH1_PHASE_Pin|TIM15_CH1_PHASE_Pin
+                          |TIM1_CH1_PHASE_Pin|TIM1_CH2_PHASE_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : TIM4_CH4_PH_Pin TIM5_CH2_PH_Pin TIM5_CH3_PH_Pin TIM4_CH3_PH_Pin */
-  GPIO_InitStruct.Pin = TIM4_CH4_PH_Pin|TIM5_CH2_PH_Pin|TIM5_CH3_PH_Pin|TIM4_CH3_PH_Pin;
+  /*Configure GPIO pins : TIM4_CH4_PHASE_Pin TIM5_CH2_PHASE_Pin TIM5_CH3_PHASE_Pin TIM4_CH3_PHASE_Pin */
+  GPIO_InitStruct.Pin = TIM4_CH4_PHASE_Pin|TIM5_CH2_PHASE_Pin|TIM5_CH3_PHASE_Pin|TIM4_CH3_PHASE_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : TIM4_CH1_PH_Pin TIM4_CH2_PH_Pin */
-  GPIO_InitStruct.Pin = TIM4_CH1_PH_Pin|TIM4_CH2_PH_Pin;
+  /*Configure GPIO pin : PC0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PC3 LDC0_INTB_Pin */
+  GPIO_InitStruct.Pin = GPIO_PIN_3|LDC0_INTB_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : LED0_Pin LED1_Pin LED2_Pin TIM4_CH1_PHASE_Pin
+                           TIM4_CH2_PHASE_Pin SPI6_MUX_OE_n_Pin */
+  GPIO_InitStruct.Pin = LED0_Pin|LED1_Pin|LED2_Pin|TIM4_CH1_PHASE_Pin
+                          |TIM4_CH2_PHASE_Pin|SPI6_MUX_OE_n_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : HRTIM_CHC1_PH_Pin HRTIM_CHC2_PH_Pin HRTIM_CHD1_PH_Pin HRTIM_CHD2_PH_Pin
-                           TIM15_CH2_PH_Pin TIM16_CH1_PH_Pin LPTIM1_OUT_PH_Pin HRTIM_CHA1_PH_Pin
-                           HRTIM_CHA2_PH_Pin HRTIM_CHB1_PH_Pin HRTIM_CHB2_PH_Pin */
-  GPIO_InitStruct.Pin = HRTIM_CHC1_PH_Pin|HRTIM_CHC2_PH_Pin|HRTIM_CHD1_PH_Pin|HRTIM_CHD2_PH_Pin
-                          |TIM15_CH2_PH_Pin|TIM16_CH1_PH_Pin|LPTIM1_OUT_PH_Pin|HRTIM_CHA1_PH_Pin
-                          |HRTIM_CHA2_PH_Pin|HRTIM_CHB1_PH_Pin|HRTIM_CHB2_PH_Pin;
+  /*Configure GPIO pins : HRTIM_CHC1_PHASE_Pin HRTIM_CHC2_PHASE_Pin HRTIM_CHD1_PHASE_Pin HRTIM_CHD2_PHASE_Pin
+                           TIM15_CH2_PHASE_Pin TIM16_CH1_PHASE_Pin HRTIM_CHA1_PHASE_Pin HRTIM_CHA2_PHASE_Pin
+                           HRTIM_CHB1_PHASE_Pin HRTIM_CHB2_PHASE_Pin */
+  GPIO_InitStruct.Pin = HRTIM_CHC1_PHASE_Pin|HRTIM_CHC2_PHASE_Pin|HRTIM_CHD1_PHASE_Pin|HRTIM_CHD2_PHASE_Pin
+                          |TIM15_CH2_PHASE_Pin|TIM16_CH1_PHASE_Pin|HRTIM_CHA1_PHASE_Pin|HRTIM_CHA2_PHASE_Pin
+                          |HRTIM_CHB1_PHASE_Pin|HRTIM_CHB2_PHASE_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : ACTUATOR_ENABLE_MCU_Pin */
+  GPIO_InitStruct.Pin = ACTUATOR_ENABLE_MCU_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(ACTUATOR_ENABLE_MCU_GPIO_Port, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-	static int i = 0;  // index for actuator update
-	static int t = 0; // variable to track time
-	const int period = 10; // number of timer rollovers between updates
-	const double step = 0.3;// max step size in volts
 
-	/*//Used to account for period in time clicks for UART Output
-		sys_timer+= 24000;
-		period_ticks ++;
-	*/
 
-    if (htim==&htim1){
-    	t+=1;
-    	if(t%period == 0)
-    	{
-    		if(i>=SIN_PERIOD) i = 0;
-    		//update the output
-    		ref = sine_vals[i]*step;
-			// inform main that the actuators need an update
-    		i+=1;
-			ctrl_tmr_expired = TRUE;
-    	}
+
+/**
+ * @function : HAL_TIM_PeriodElapsedCallback
+ * @brief : reads the message from the rx buffer and puts it into module level message buffer
+ * @param :  TIM_HandleTypeDef * htim
+ * @return : none
+ * @author : Aaron Hunter
+ */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+	ctrl_tmr_expired = TRUE;
+}
+
+
+/**
+ * @function : UART_parse_message
+ * @brief : reads the message from the rx buffer and puts it into module level message buffer
+ * @param :  none
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void UART_parse_message(void){
+	char msg_type[] = "CMD";
+	char response[BUFFER_LENGTH] = {0};
+	char msg_buffer[BUFFER_LENGTH] = {0};
+
+	char msg_hdr[CMD_HDR_LENGTH + 1] = {0};  // allocate an extra char for null termination
+	int n_bytes = {0};
+	int i;
+
+	reading_rx_buffer = TRUE; // block RX interrupt while reading from the buffer
+
+	int length = get_num_elements(rxbuf_p);
+	for (i=0; i < length; i++){
+		msg_buffer[i] = read_buffer(rxbuf_p);
+	}
+
+	reading_rx_buffer = FALSE;
+
+	if (rx_collision == TRUE){
+		UART4->CR1 |= USART_CR1_RXNEIE; // re-enable interrupt
+		rx_collision = FALSE; // reset collision flag
+	}
+
+	memcpy(msg_hdr,msg_buffer,CMD_HDR_LENGTH*sizeof(uint8_t)); // Get the message type
+
+	if(strcmp(msg_type,msg_hdr)==0 ){
+
+		memcpy(cmd_ref, &msg_buffer[CMD_HDR_LENGTH],NUM_ACTUATORS*(sizeof(int16_t)));  // get the data
+
+		n_bytes = sprintf(response, " Values: %d, %d ", msg_buffer[length -3], msg_buffer[length -2]);
+		UART_print(response, n_bytes);  // echo the first and last values
+		new_cmd_ready = TRUE; // signal main to update the actuators with the new reference values
+	} else {
+		n_bytes = sprintf(response, " Unrecognized command: %s ", msg_hdr);
+		UART_print(response, n_bytes);
 	}
 
 }
 
-/*Writes commands into the circular buffer as they are sent,
-once the elements is equal to the command length, a flag is sent*/
-void UART_update(){
 
-	// echo back out the serial port
-//	LL_USART_TransmitData8(UART4, recvd_byte);
-	// update state machine with the character
-	run_state_machine(recvd_byte);
-	// Clear the flag
-	data_ready = FALSE;
-	// restart the uart interrupt
-//	HAL_UART_Receive_IT(UART4, rx_buff, sizeof(rx_buff));
-}
-
-/*Function that is called once the number of elements in the buffer
-is equal to the command length. Fills elements into an array to print */
-void command_update(){
-
-	for(index = 0; index <= CMD_LENGTH ; index ++){
-		 cmd_bytes[index] = read_from_buffer(rxp);
-	 }
-
-	for(index = 0; index <= NUM_ACTUATORS ; index ++){
-		cmd_ref[index] = (cmd_bytes[(2*index)+1]<<8|cmd_bytes[2*index]);
+/**
+ * @function : UART_print(char* buf, int length)
+ * @brief : writes a buffer to the tx_buffer and triggers a UART TX
+ * @param : buffer pointer
+ * @param : buffer length
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void UART_print(char* buf, int length){
+	int i;
+	writing_tx_buffer = TRUE;  // block the TX interrupt while writing data to the buffer
+	for (i = 0; i < length; i++){
+		write_buffer(txbuf_p, buf[i]);
 	}
+	writing_tx_buffer = FALSE;
+	/* enable interrupt to transmit message over the UART */
+	if(tx_collision == TRUE) tx_collision = FALSE;
+	UART4->CR1 |= USART_CR1_TXEIE;
 
-//	HAL_UART_Transmit(&huart4, cmd_bytes, sizeof(cmd_bytes), 10);
+}
 
-	cmd_ready = FALSE;
+/**
+ * @function : init_channels
+ * @brief : initializes all the PWM channels
+ * @param :  none
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void init_channels(void){
+
+	/* Timer 1 is the application timer and is interrupt-driven */
+	HAL_TIM_Base_Start_IT(&htim1);
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
+
+	/* Timer 2 */
+	HAL_TIM_Base_Start(&htim2);
+	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+
+	/* Timer 4 */
+	HAL_TIM_Base_Start(&htim4);
+	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);
+	HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4);
+
+	/* Timer 5 */
+	HAL_TIM_Base_Start(&htim5);
+	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_2);
+	HAL_TIM_PWM_Start(&htim5, TIM_CHANNEL_3);
+
+	/* Timer 8 */
+	HAL_TIM_Base_Start(&htim8);
+	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_4);
+
+	/* Timer 12 */
+	HAL_TIM_Base_Start(&htim12);
+	HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
+
+	/* Timer 13 */
+	HAL_TIM_Base_Start(&htim13);
+	HAL_TIM_PWM_Start(&htim13, TIM_CHANNEL_1);
+
+	/* Timer 14 */
+	HAL_TIM_Base_Start(&htim14);
+	HAL_TIM_PWM_Start(&htim14, TIM_CHANNEL_1);
+
+	/* Timer 15 */
+	HAL_TIM_Base_Start(&htim15);
+	HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_2);
+
+	/* Timer 16 */
+	HAL_TIM_Base_Start(&htim16);
+	HAL_TIM_PWM_Start(&htim16, TIM_CHANNEL_1);
+
+	/* High Resolution Timer */
+	/* Enable outputs */
+	HRTIM1->sCommonRegs.OENR = HRTIM_OENR_TA1OEN + HRTIM_OENR_TA2OEN + HRTIM_OENR_TB1OEN + HRTIM_OENR_TB2OEN
+			+ HRTIM_OENR_TC1OEN + HRTIM_OENR_TC2OEN + HRTIM_OENR_TD1OEN + HRTIM_OENR_TD2OEN;
+	/* Start Timer */
+	HRTIM1->sMasterRegs.MCR = HRTIM_MCR_TACEN + HRTIM_MCR_TBCEN + HRTIM_MCR_TCCEN + HRTIM_MCR_TDCEN;
+
+	/* Synchronize Timer 16 by resetting its clock to zero along with Timer 1 */
+	/* all other timers except for 16 are updated in hardware using internal triggers */
+	TIM1->CNT = 0;  // acts as the timing signal
+	TIM16->CNT = 0; // reset timer 16 counter
+
 }
 
 
-static void run_state_machine(uint8_t byte)
+/**
+ * @function : init_actuators
+ * @brief : Creates and populates actuator array
+ * @param :  none
+ * @return : none
+ * @author : Aaron Hunter
+ */
+static void init_actuators(void){
+	uint16_t duty = MINDUTYCYCLE;
+	static int phase = GPIO_PIN_SET;
+	int i = 0;
+
+	actuator_init(&actuators[TIM1_CH1], TIM1_CH1, TIM1_CH1_PHASE_GPIO_Port, TIM1_CH1_PHASE_Pin,(volatile uint32_t *) &TIM1->CCR1);
+	actuator_init(&actuators[TIM1_CH2], TIM1_CH2, TIM1_CH2_PHASE_GPIO_Port, TIM1_CH2_PHASE_Pin,(volatile uint32_t *) &TIM1->CCR2);
+	actuator_init(&actuators[TIM1_CH3], TIM1_CH3, TIM1_CH3_PHASE_GPIO_Port, TIM1_CH3_PHASE_Pin,(volatile uint32_t *) &TIM1->CCR3);
+	actuator_init(&actuators[TIM1_CH4], TIM1_CH4, TIM1_CH4_PHASE_GPIO_Port, TIM1_CH4_PHASE_Pin,(volatile uint32_t *) &TIM1->CCR4);
+	actuator_init(&actuators[TIM2_CH1], TIM2_CH1, TIM2_CH1_PHASE_GPIO_Port, TIM2_CH1_PHASE_Pin,(volatile uint32_t *) &TIM2->CCR1);
+	actuator_init(&actuators[TIM4_CH1], TIM4_CH1, TIM4_CH1_PHASE_GPIO_Port, TIM4_CH1_PHASE_Pin,(volatile uint32_t *) &TIM4->CCR1);
+	actuator_init(&actuators[TIM4_CH2], TIM4_CH2, TIM4_CH2_PHASE_GPIO_Port, TIM4_CH2_PHASE_Pin,(volatile uint32_t *) &TIM4->CCR2);
+	actuator_init(&actuators[TIM4_CH3], TIM4_CH3, TIM4_CH3_PHASE_GPIO_Port, TIM4_CH3_PHASE_Pin,(volatile uint32_t *) &TIM4->CCR3);
+	actuator_init(&actuators[TIM4_CH4], TIM4_CH4, TIM4_CH4_PHASE_GPIO_Port, TIM4_CH4_PHASE_Pin,(volatile uint32_t *) &TIM4->CCR4);
+	actuator_init(&actuators[TIM5_CH2], TIM5_CH2, TIM5_CH2_PHASE_GPIO_Port, TIM5_CH2_PHASE_Pin,(volatile uint32_t *) &TIM5->CCR2);
+	actuator_init(&actuators[TIM5_CH3], TIM5_CH3, TIM5_CH3_PHASE_GPIO_Port, TIM5_CH3_PHASE_Pin,(volatile uint32_t *) &TIM5->CCR3);
+	actuator_init(&actuators[TIM8_CH4], TIM8_CH4, TIM8_CH4_PHASE_GPIO_Port, TIM8_CH4_PHASE_Pin,(volatile uint32_t *) &TIM8->CCR4);
+	actuator_init(&actuators[TIM12_CH2], TIM12_CH2, TIM12_CH2_PHASE_GPIO_Port, TIM12_CH2_PHASE_Pin,(volatile uint32_t *) &TIM12->CCR2);
+	actuator_init(&actuators[TIM13_CH1], TIM13_CH1, TIM13_CH1_PHASE_GPIO_Port, TIM13_CH1_PHASE_Pin,(volatile uint32_t *) &TIM13->CCR1);
+	actuator_init(&actuators[TIM14_CH1], TIM14_CH1, TIM14_CH1_PHASE_GPIO_Port, TIM14_CH1_PHASE_Pin,(volatile uint32_t *) &TIM14->CCR1);
+	actuator_init(&actuators[TIM15_CH1], TIM15_CH1, TIM15_CH1_PHASE_GPIO_Port, TIM15_CH1_PHASE_Pin,(volatile uint32_t *) &TIM15->CCR1);
+	actuator_init(&actuators[TIM15_CH2], TIM15_CH2, TIM15_CH2_PHASE_GPIO_Port, TIM15_CH2_PHASE_Pin,(volatile uint32_t *) &TIM15->CCR2);
+	actuator_init(&actuators[TIM16_CH1], TIM16_CH1, TIM16_CH1_PHASE_GPIO_Port, TIM16_CH1_PHASE_Pin,(volatile uint32_t *) &TIM16->CCR1);
+	actuator_init(&actuators[HRTIM_CHA1],HRTIM_CHA1, HRTIM_CHA1_PHASE_GPIO_Port, HRTIM_CHA1_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_A].CMP1xR);
+	actuator_init(&actuators[HRTIM_CHA2],HRTIM_CHA2, HRTIM_CHA2_PHASE_GPIO_Port, HRTIM_CHA2_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_A].CMP2xR);
+	actuator_init(&actuators[HRTIM_CHB1],HRTIM_CHB1, HRTIM_CHB1_PHASE_GPIO_Port, HRTIM_CHB1_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_B].CMP1xR);
+	actuator_init(&actuators[HRTIM_CHB2],HRTIM_CHB2, HRTIM_CHB2_PHASE_GPIO_Port, HRTIM_CHB2_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_B].CMP2xR);
+	actuator_init(&actuators[HRTIM_CHC1],HRTIM_CHC1, HRTIM_CHC1_PHASE_GPIO_Port, HRTIM_CHC1_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_C].CMP1xR);
+	actuator_init(&actuators[HRTIM_CHC2],HRTIM_CHC2, HRTIM_CHC2_PHASE_GPIO_Port, HRTIM_CHC2_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_C].CMP2xR);
+	actuator_init(&actuators[HRTIM_CHD1],HRTIM_CHD1, HRTIM_CHD1_PHASE_GPIO_Port, HRTIM_CHD1_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_D].CMP1xR);
+	actuator_init(&actuators[HRTIM_CHD2],HRTIM_CHD2, HRTIM_CHD2_PHASE_GPIO_Port, HRTIM_CHD2_PHASE_Pin,
+				(volatile uint32_t *) &HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_D].CMP2xR);
+
+	/* initialize  the phase and dutycycle */
+	for(i=0;i<NUM_ACTUATORS;i++){
+		*(actuators[i].dutycycle) = duty;
+		HAL_GPIO_WritePin(actuators[i].phase_port, actuators[i].phase_pin, phase);
+	}
+}
+
+
+
+
+
+/**
+ * @function : run_RX_state_machine
+ * @brief : parses external command messages
+ * @param byte : received byte
+ * @return none
+ * @author Aaron Hunter
+ * */
+void run_RX_state_machine(uint8_t byte)
 {
-	static int current_state = startByte1;
-	static int counter = 0;
-	int next_state;
+	static UART_receive_state_t current_state= STORE_BYTE;
+	UART_receive_state_t next_state;
+	uint8_t end_bytes[2] = {0xe1, 0xe2};
 
 	switch(current_state){
-		case startByte1:
-			if(byte == start_bytes[0]){
-				next_state = startByte2;
-			} else{
-				next_state = current_state;
-			}
-			break;
-		case(startByte2):
-			if(byte == start_bytes[1]){
-				next_state = storeMessage;
-				counter = 0;
-			} else{
-				next_state = startByte1;
-			}
-			break;
-		case(storeMessage):
-			if(counter == CMD_LENGTH-1){
-				next_state = endByte1;
-			}else{
-				next_state = storeMessage;
-			}
-			write_buffer(rxp, byte);
-			counter++;
-			break;
-		case(endByte1):
+		case(STORE_BYTE):
 			if(byte == end_bytes[0]){
-				next_state = endByte2;
+				next_state = CHECK_FOR_END;
 			}else{
-				next_state = startByte1;
+				next_state = STORE_BYTE;
 			}
 			break;
-		case(endByte2):
+		case(CHECK_FOR_END):
 			if(byte == end_bytes[1]){
-				cmd_ready = TRUE;
-				LL_USART_TransmitData8(UART4,1); // test when commands are actually interpreted correctly
-			}else{
-			rxp->read_index = 0;
-			rxp->write_index = 0;
+				msg_recvd = TRUE;
 			}
-			next_state = startByte1;
+			next_state = STORE_BYTE;
 			break;
 		default:
 			break;
@@ -1610,569 +1902,47 @@ static void run_state_machine(uint8_t byte)
 	current_state = next_state;
 }
 
-
-
-//void HAL_UART_RxCpltCallback(UART_HandleTypeDef*huart)
-//{
-//	uint8_t test_char[1];
-//	test_char[0] = 0xff;
-//	HAL_UART_Transmit(&huart4, test_char, sizeof(test_char), 1);
-//	data_ready = TRUE;
-//}
-
-//
-//void HAL_UART_TxCpltCallback(UART_HandleTypeDef*huart)
-//{
-// __NOP();
-//}
-
-
-unsigned char get_char(void) {
-    unsigned char c;
-    if (is_buffer_empty(rxp) == FALSE) {
-        reading_rx_buffer = TRUE; /*set buffer access flag*/
-        c = read_from_buffer(rxp);
-        reading_rx_buffer = FALSE;
-        return c;
-    }
-    return 0; /*no data available*/
-}
-
-
-static void init_buffer(struct circular_buffer *buf) {
-    int i;
-    buf->read_index = 0; /*initialize read index to 0 */
-    buf->write_index = 0; /*initialize write index to 0 */
-    buf->size = BUFFER_LENGTH; /*Set size to buffer length const*/
-    for (i = 0; i < BUFFER_LENGTH; i++) { /*initialize data to zero*/
-        buf->data[i] = 0;
-    } /*end for */
-}
-
-
-/* function int is_buffer_empty(struct circular_buffer *buf)
- * takes a pointer to a circular buffer and compares the read and write indices
- * if they are equal then the buffer is empty
+/**
+ * @function : update_commands
+ * @brief : sets the new actuator command targets
+ * @return none
+ * @author Aaron Hunter
  */
-static int8_t is_buffer_empty(struct circular_buffer *buf) {
-    if (buf->read_index == buf->write_index) { //if read = write then the buffer is empty
-        return TRUE;
-    }
-    return FALSE;
-}
-
-/*  bufFull(struct oBuffer *buf)
- * takes a pointer to a circular buffer and compares the read and write indices
- * if write+1 = read, then the buffer is full.
- */
-static int8_t is_buffer_full(struct circular_buffer *buf) {
-    /* write index +1 == read index is full,  the mod provides wrap around*/
-    if ((buf->write_index + 1) % BUFFER_LENGTH == buf->read_index) {
-        return TRUE;
-    }
-    return FALSE;
-}
-
-/* writeBuffer( (struct oBuffer *buf, unsigned char c)
- * takes a pointer to a circular buffer and a char to be written
- * returns SUCCESS or ERROR
- */
-static int8_t write_buffer(struct circular_buffer *buf, unsigned char c) {
-    if (is_buffer_full(buf) == FALSE) {
-        buf->data[buf->write_index] = c;
-        /*increment the write index and wrap using modulus arithmetic */
-        buf->write_index = (buf->write_index + 1) % BUFFER_LENGTH;
-        return SUCCESS;
-    }
-    return ERROR; /*no data written*/
-}
-
-/*int readBuffer(struct oBuffer *buf)
- * takes a pointer to a circular buffer
- * returns the value from the buffer
- * the read index is incremented and wrapped using modulus arithmetic
- * Returns 0 if the buffer is empty or the pointer is invalid
- */
-static unsigned char read_from_buffer(struct circular_buffer *buf) {
-    unsigned char val;
-    if (is_buffer_empty(buf) == FALSE) {
-        val = buf->data[buf->read_index]; //get the char from the buffer
-        /*increment the read index and wrap using modulus arithmetic*/
-        buf->read_index = (buf->read_index + 1) % BUFFER_LENGTH;
-        return val;
-    }
-    return 0;
-}
-
-static int get_num_elements(struct circular_buffer *buf) {
-    if (buf != NULL) {
-        if (buf->write_index < buf->read_index) { /*test for wrap around*/
-            return (buf->write_index + BUFFER_LENGTH - buf->read_index);
-        } else {
-            return (buf->write_index - buf->read_index);
-        }
-    }
-    return 0;
-}
-
-
-static void control_update(double ref)
-{
-	// sign bit of the command fed to phase input on the h-bridge
-	static int phase=GPIO_PIN_SET;
-	static uint16_t dutycycle=0;
-	double absref = 0;
-
-	//Timer 1 channels
-	// set the sign of the move (phase)
-	if(cmd_ref[T1C1] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM1_CH1_PH_GPIO_Port, TIM1_CH1_PH_Pin, phase);  //Starts the phase generation on each of the pins (Channels)
-
-	// set the sign of the move (phase)
-	if(cmd_ref[T1C2] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM1_CH2_PH_GPIO_Port, TIM1_CH2_PH_Pin, phase);
-
-	// set the sign of the move (phase)
-	if(cmd_ref[T1C3] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM1_CH3_PH_GPIO_Port, TIM1_CH3_PH_Pin, phase);
-
-	// set the sign of the move (phase)
-	if(cmd_ref[T1C4] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM1_CH4_PH_GPIO_Port, TIM1_CH4_PH_Pin, phase);
-	//End Timer 1
-
-	//Timer 2 channel
-		// set the sign of the move (phase)
-	if(cmd_ref[T2C1] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM2_CH1_PH_GPIO_Port, TIM2_CH1_PH_Pin, phase);
-	//End Timer 2
-
-	//Timer 4 channels
-	// set the sign of the move (phase)
-	if(cmd_ref[T4C1] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM4_CH1_PH_GPIO_Port, TIM4_CH1_PH_Pin, phase);
-
-	// set the sign of the move (phase)
-	if(cmd_ref[T4C2] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM4_CH2_PH_GPIO_Port, TIM4_CH2_PH_Pin, phase);
-
-	// set the sign of the move (phase)
-	if(cmd_ref[T4C3] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM4_CH3_PH_GPIO_Port, TIM4_CH3_PH_Pin, phase);
-
-	// set the sign of the move (phase)
-	if(cmd_ref[T4C4] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM4_CH4_PH_GPIO_Port, TIM4_CH4_PH_Pin, phase);
-	//End Timer 4
-
-
-	//Timer 5
-	// set the sign of the move (phase)
-	if(cmd_ref[T5C2] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM5_CH2_PH_GPIO_Port, TIM5_CH2_PH_Pin, phase);
-
-	// set the sign of the move (phase)
-	if(cmd_ref[T5C3] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM5_CH3_PH_GPIO_Port, TIM5_CH3_PH_Pin, phase);
-    //End Timer 5
-
-
-    //Timer 8
-		// set the sign of the move (phase)
-	if(cmd_ref[T8C4] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM8_CH4_PH_GPIO_Port, TIM8_CH4_PH_Pin, phase);
-	//End Timer 8
-
-
-    //Timer 12
-	// set the sign of the move (phase)
-	if(cmd_ref[T12C2] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM12_CH2_PH_GPIO_Port, TIM12_CH2_PH_Pin, phase);
-    //End Timer 12
-
-
-    //Timer 13
-	// set the sign of the move (phase)
-	if(cmd_ref[T13C1] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM13_CH1_PH_GPIO_Port, TIM13_CH1_PH_Pin, phase);
-    //End Timer 13
-
-
-    //Timer 14
-	// set the sign of the move (phase)
-	if(cmd_ref[T14C1] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM14_CH1_PH_GPIO_Port, TIM14_CH1_PH_Pin, phase);
-    //End Timer 14
-
-
-    //Timer 15
-		// set the sign of the move (phase)
-	if(cmd_ref[T15C1] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM15_CH1_PH_GPIO_Port, TIM15_CH1_PH_Pin, phase);
-
-	// set the sign of the move (phase)
-	if(cmd_ref[T15C2] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM15_CH2_PH_GPIO_Port, TIM15_CH2_PH_Pin, phase);
-   //End Timer 15
-
-
-   //Timer 16
-		// set the sign of the move (phase)
-	if(cmd_ref[T16C1] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(TIM16_CH1_PH_GPIO_Port, TIM16_CH1_PH_Pin, phase);
-    //End Timer 16
-
-
-    //HRTIM CODE HERE **************
-    //High Resolution Timer CHA
-	// set the sign of the move (phase)
-	if(cmd_ref[HRA1] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(HRTIM_CHA1_PH_GPIO_Port, HRTIM_CHA1_PH_Pin, phase);
-
-	// set the sign of the move (phase)
-	if(cmd_ref[HRA2] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(HRTIM_CHA2_PH_GPIO_Port, HRTIM_CHA2_PH_Pin, phase);
-    //End High HRTIM CHA
-
-    //High Resolution Timer CHB
-		// set the sign of the move (phase)
-	if(cmd_ref[HRB1] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(HRTIM_CHB1_PH_GPIO_Port, HRTIM_CHB1_PH_Pin, phase);
-
-	// set the sign of the move (phase)
-	if(cmd_ref[HRB2] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(HRTIM_CHB2_PH_GPIO_Port, HRTIM_CHB2_PH_Pin, phase);
-    //End High HRTIM CHB
-
-    //High Resolution Timer CHC
-		// set the sign of the move (phase)
-	if(cmd_ref[HRC1] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(HRTIM_CHC1_PH_GPIO_Port, HRTIM_CHC1_PH_Pin, phase);
-
-	// set the sign of the move (phase)
-	if(cmd_ref[HRC2] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(HRTIM_CHC2_PH_GPIO_Port, HRTIM_CHC2_PH_Pin, phase);
-    //End High HRTIM CHC
-
-    //High Resolution Timer CHD
-		// set the sign of the move (phase)
-	if(cmd_ref[HRD1] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(HRTIM_CHD1_PH_GPIO_Port, HRTIM_CHD1_PH_Pin, phase);
-
-// set the sign of the move (phase)
-	if(cmd_ref[HRD2] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(HRTIM_CHD2_PH_GPIO_Port, HRTIM_CHD2_PH_Pin, phase);
-    //End High HRTIM CHD
-     //END HRTIM CODE
-
-    //Low Power Timer
-	// set the sign of the move (phase)
-	if(cmd_ref[LPTIM] < 0){
-		phase = GPIO_PIN_RESET; // reverse direction
-	} else {
-		phase = GPIO_PIN_SET; //forward direction
-	}
-	HAL_GPIO_WritePin(LPTIM1_OUT_PH_GPIO_Port, LPTIM1_OUT_PH_Pin, phase);
-    //End low power timer
-
-//	}
-
-	//Timer 1
-	// calculate the dutycycle
-	absref = fabs(cmd_ref[T1C1]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM1->CCR1 = dutycycle;   //Calls the duty cycle on the timers at the desired channel
-
-	absref = fabs(cmd_ref[T1C2]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM1->CCR2 = dutycycle;
-
-	absref = fabs(cmd_ref[T1C3]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM1->CCR3 = dutycycle;
-
-	absref = fabs(cmd_ref[T1C4]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM1->CCR4 = dutycycle;
-	//End Timer 1
-
-	//Timer 2
-	absref = fabs(cmd_ref[T2C1]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM2->CCR1 = dutycycle;
-	//End Timer 2
-
-	//Timer 4
-	absref = fabs(cmd_ref[T4C1]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM4->CCR1 = dutycycle;
-
-	absref = fabs(cmd_ref[T4C2]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM4->CCR2 = dutycycle;
-
-	absref = fabs(cmd_ref[T4C3]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM4->CCR3 = dutycycle;
-
-	absref = fabs(cmd_ref[T4C4]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM4->CCR4 = dutycycle;
-	//End Timer 4
-
-	//Timer 5
-	absref = fabs(cmd_ref[T5C2]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM5->CCR2 = dutycycle;
-
-	absref = fabs(cmd_ref[T5C3]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM5->CCR3 = dutycycle;
-	//End Timer 5
-
-	//Timer 8
-	absref = fabs(cmd_ref[T8C4]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM8->CCR4 = dutycycle;
-	//End Timer 8
-
-	//Timer 12
-	absref = fabs(cmd_ref[T12C2]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM12->CCR2 = dutycycle;
-	//End Timer 12
-
-	//Timer 13
-	absref = fabs(cmd_ref[T13C1]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM13->CCR1 = dutycycle;
-	//End Timer 13
-
-	//Timer 14
-	absref = fabs(cmd_ref[T14C1]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM14->CCR1 = dutycycle;
-	//End Timer 14
-
-	//Timer 15
-	absref = fabs(cmd_ref[T15C1]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM15->CCR1 = dutycycle;
-
-	absref = fabs(cmd_ref[T15C2]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM15->CCR2 = dutycycle;
-	//End Timer 15
-
-	//Timer 16
-	absref = fabs(cmd_ref[T16C1]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	TIM16->CCR1 = dutycycle;
-	//End Timer 16
-
-	//HRTIM CODE GOES HERE ********
-	//HRTIM CHA
-	absref = fabs(cmd_ref[HRA1]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_A].CMP1xR = dutycycle;
-
-	absref = fabs(cmd_ref[HRA2]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_A].CMP2xR = dutycycle;
-	//End HRTIM CHA
-
-	//HRTIM CHB
-	absref = fabs(cmd_ref[HRB1]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_B].CMP1xR = dutycycle;
-
-	absref = fabs(cmd_ref[HRB2]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_B].CMP2xR = dutycycle;
-	//End HRTIM CHB
-
-	//HRTIM CHC
-	absref = fabs(cmd_ref[HRC1]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_C].CMP1xR = dutycycle;
-
-	absref = fabs(cmd_ref[HRC2]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_C].CMP2xR = dutycycle;
-	//End HRTIM CHC
-
-	//HRTIM CHD
-	absref = fabs(cmd_ref[HRD1]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_D].CMP1xR = dutycycle;
-
-	absref = fabs(cmd_ref[HRD2]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	HRTIM1->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_D].CMP2xR = dutycycle;
-	//End HRTIM CHD
-	//END HRTIM CODE HERE
-
-	//LPTIM1
-	absref = fabs(cmd_ref[LPTIM]); // duty cycle must be positive
-	dutycycle = calc_dutycycle(absref,VSS);
-	LPTIM1->CMP = dutycycle/2;
-	//End LPTIM1
-
-	// reset timer flag
-	ctrl_tmr_expired = FALSE;
-}
-
-//------------------------------//
-//	@function calc_dutycycle(cmd, vss)
-//	@ param cmd command voltage
-//	@ param vss supply voltage
-//	@ return dutycycle
-
-static uint16_t calc_dutycycle(uint16_t cmd, double vss)
-{
-	// duty cycle variable
-	uint16_t dc={0};
-	double scale = 1.8/15000; // rough calibration of v/nm
-
-	dc = (uint16_t)((cmd*scale)/vss * (double)PERIOD);
-	// keep the dutycycle within the period of the PWM signal
-	if(dc>PERIOD) dc = PERIOD;
-
-	return dc;
-}
-
-static void gen_sine(void)
-{
+static void update_commands(void){
 	int i = 0;
-	double scale = TWO_PI/SIN_PERIOD;
-	for(i=0; i<SIN_PERIOD; i++ )
-	{
-		sine_vals[i] = sin(i*scale);
+	int8_t phase;
+	uint16_t dutycycle;
+
+	for(i = 0; i<NUM_ACTUATORS; i++){
+		phase = (cmd_ref[i]>0);  // phase is set to zero for negative commands, one for positive
+		dutycycle = calc_dutycycle(abs(cmd_ref[i])); // compute the dutycycle from the reference command
+		*(actuators[i].dutycycle) = dutycycle;  // set the duty cycle
+		HAL_GPIO_WritePin(actuators[i].phase_port, actuators[i].phase_pin, phase);  // set the phase pin
 	}
+}
+
+/**
+ * @function calc_dutycycle(cmd)
+ * @brief computes the dutycycle in counts from an actuator command in nanometers
+ * @param cmd
+ * @return dutycycle
+ * @author Aaron Hunter
+ */
+uint16_t calc_dutycycle(int16_t cmd){
+	uint16_t dutycycle = 0;
+	uint16_t min_dutycycle = MINDUTYCYCLE;
+	uint16_t max_dutycycle = MAXDUTYCYCLE;
+	int scale_den = 10; //  scaling factor denominator
+	int scale_num = 7; //  scaling factor numerator
+	// apply lead filter
+	dutycycle = (uint16_t)((abs((int)cmd) * scale_num)/scale_den);
+	if(dutycycle < min_dutycycle) dutycycle = min_dutycycle;
+	if(dutycycle > max_dutycycle) dutycycle = max_dutycycle;
+	return dutycycle;
 }
 
 
 /* USER CODE END 4 */
-
- /* MPU Configuration */
-
-void MPU_Config(void)
-{
-
-  /* Disables the MPU */
-  LL_MPU_Disable();
-
-  /** Initializes and configures the Region and the memory to be protected
-  */
-  LL_MPU_ConfigRegion(LL_MPU_REGION_NUMBER0, 0x87, 0x0, LL_MPU_REGION_SIZE_4GB|LL_MPU_TEX_LEVEL0|LL_MPU_REGION_NO_ACCESS|LL_MPU_INSTRUCTION_ACCESS_DISABLE|LL_MPU_ACCESS_SHAREABLE|LL_MPU_ACCESS_NOT_CACHEABLE|LL_MPU_ACCESS_NOT_BUFFERABLE);
-  /* Enables the MPU */
-  LL_MPU_Enable(LL_MPU_CTRL_PRIVILEGED_DEFAULT);
-
-}
 
 /**
   * @brief  This function is executed in case of error occurrence.
