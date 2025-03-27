@@ -129,7 +129,7 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN Private defines */
 /* Size of buffer */
-#define BUFFERSIZE                       (COUNTOF(aTxBuffer) - 1)
+#define BUFFERSIZE                       (COUNTOF(TX_Buffer) - 1)
 
 /* Exported macro ------------------------------------------------------------*/
 #define COUNTOF(__BUFFER__)   (sizeof(__BUFFER__) / sizeof(*(__BUFFER__)))

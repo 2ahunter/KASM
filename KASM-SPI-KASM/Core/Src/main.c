@@ -62,10 +62,10 @@ TIM_HandleTypeDef htim16;
 
 /* USER CODE BEGIN PV */
 /* Buffer used for transmission */
-uint8_t aTxBuffer[] = "****SPI - Two Boards communication based on Polling **** SPI Message ******** SPI Message ******** SPI Message ****";
+uint8_t TX_Buffer[] = "****SPI - Two Boards communication based on Polling **** SPI Message ******** SPI Message ******** SPI Message ****";
 
 /* Buffer used for reception */
-uint8_t aRxBuffer[BUFFERSIZE];
+uint8_t RX_Buffer[BUFFERSIZE];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -124,9 +124,6 @@ int main(void)
   /* MPU Configuration--------------------------------------------------------*/
   MPU_Config();
 
-  /* Enable the CPU Cache */
-  CPU_CACHE_Enable();
-
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
@@ -161,42 +158,6 @@ int main(void)
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_Delay(2000); // wait a couple seconds
-
-  /*##-2- Start the Full Duplex Communication process ########################*/
-  /* While the SPI in TransmitReceive process, user can transmit data through
-     "aTxBuffer" buffer & receive data through "aRxBuffer" */
-  /* Timeout is set to 5S */
-
-  switch(HAL_SPI_TransmitReceive(&hspi2, (uint8_t*)aTxBuffer, (uint8_t *)aRxBuffer, BUFFERSIZE, 5000))
-  {
-    case HAL_OK:
-      /* Communication is completed ___________________________________________ */
-      /* Compare the sent and received buffers */
-      if (Buffercmp((uint8_t *)aTxBuffer, (uint8_t *)aRxBuffer, BUFFERSIZE))
-      {
-        /* Transfer error in transmission process */
-        Error_Handler();
-      }
-      break;
-
-    case HAL_TIMEOUT:
-      /* A Timeout Occur ______________________________________________________*/
-      /* Call Timeout Handler */
-    	HAL_Delay(1);
-    	Error_Handler();
-      break;
-      /* An Error Occur ______________________________________________________ */
-    case HAL_ERROR:
-      /* Call Error Handler */
-      Error_Handler();
-      break;
-    default:
-      break;
-  }
-
-  HAL_Delay(1000);
-
 
   /* USER CODE END 2 */
 
@@ -204,6 +165,40 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
+
+	  /* While the SPI in TransmitReceive process, user can transmit data through
+	     "TX_Buffer" buffer & receive data through "RX_Buffer" */
+	  /* Timeout is set to 5S */
+
+	  switch(HAL_SPI_TransmitReceive(&hspi2, (uint8_t*)TX_Buffer, (uint8_t *)RX_Buffer, BUFFERSIZE, 5000))
+	  {
+	    case HAL_OK:
+	      /* Communication is completed ___________________________________________ */
+	      /* Compare the sent and received buffers */
+//	      if (Buffercmp((uint8_t *)TX_Buffer, (uint8_t *)RX_Buffer, BUFFERSIZE))
+//	      {
+//	        /* Transfer error in transmission process */
+//	        Error_Handler();
+//	      }
+	      break;
+
+	    case HAL_TIMEOUT:
+	      /* A Timeout Occur ______________________________________________________*/
+	      /* Call Timeout Handler */
+	    	HAL_Delay(1);
+	    	Error_Handler();
+	      break;
+	      /* An Error Occur ______________________________________________________ */
+	    case HAL_ERROR:
+	      /* Call Error Handler */
+	      Error_Handler();
+	      break;
+	    default:
+	      break;
+	  }
+
+	  HAL_Delay(100); // wait a couple seconds
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -510,12 +505,13 @@ static void MX_SPI2_Init(void)
   /* USER CODE END SPI2_Init 1 */
   /* SPI2 parameter configuration*/
   hspi2.Instance = SPI2;
+  hspi2.Init.Mode = SPI_MODE_MASTER;
   hspi2.Init.Direction = SPI_DIRECTION_2LINES;
   hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+  hspi2.Init.NSS = SPI_NSS_HARD_OUTPUT;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
