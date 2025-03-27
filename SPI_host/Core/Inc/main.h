@@ -59,14 +59,13 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define LED1_Pin GPIO_PIN_0
-#define LED1_GPIO_Port GPIOB
 #define JTMS_Pin GPIO_PIN_13
 #define JTMS_GPIO_Port GPIOA
 #define JTCK_Pin GPIO_PIN_14
 #define JTCK_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
+#define BUFFERSIZE 5000
 
 /* USER CODE END Private defines */
 
