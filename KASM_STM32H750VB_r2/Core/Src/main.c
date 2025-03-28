@@ -48,6 +48,8 @@
 #define CMD_HDR_LENGTH 3
 #define END1 0xe1
 #define END2 0xe2
+#define SPI_BUFFER_SIZE 1000
+#define SPI_TICKS 10000
 
 /* USER CODE END PD */
 
@@ -100,11 +102,42 @@ volatile int rx_collision_count = 0;
 volatile int tx_collision_count = 0;
 volatile int cbuf_write_err = FALSE;
 
+
+/* SPI circular RX buffer */
+circular_buffer_t spi_rxbuf;
+circular_buffer_t* spi_rxbuf_p = &spi_rxbuf; // buffer handle pointer
+
+/* SPI test message and buffers */
+uint8_t SPI_TX_buffer[] = "KASM TEST";
+uint8_t SPI_RX_buffer[SPI_BUFFER_SIZE] = {0};
+
+/* SPI flags and signals */
+int spi_msg_rcvd = FALSE;
+int spi_counter_expired = FALSE;
+
+
 /* Period timer flag */
+uint32_t tick_counter = 0;  // use the period counter as a clock
 uint8_t ctrl_tmr_expired = FALSE;
 
 /* Command reference vector */
+union command {
+	int16_t vals[NUM_ACTUATORS];  //displacement commands in nanometers
+	uint8_t bytes[NUM_ACTUATORS *2];  // byte equivalents
+} reference;
+union command * ref_p = &reference;
+
 static int16_t cmd_ref[NUM_ACTUATORS] = {0};  //displacement commands in nanometers
+
+/* TODO */
+/* We need the actual bytes to transmit, not the short ints-->either set up a union, or calculate the bytes externally */
+static int16_t rnd_vals[NUM_ACTUATORS] = {-850, -50, 922, -645, -895, 29, 175, 586, 259, 232, 381, -190, 447, 163, -1012, 863, 619, -861, 213, 390, -83, 592, 903, -845, 313, -833};  //random displacement commands in nanometers
+
+// store rnd_vals into command vector
+
+//memcpy(reference, rnd_vals[], NUM_ACTUATORS*(sizeof(int16_t)));  // get the data
+memcpy(ref_p, rnd_vals[], NUM_ACTUATORS*(sizeof(int16_t)));  // doesn't work--need to investigate
+
 uint8_t cmd_bytes[NUM_ACTUATORS * 2] = {0};
 uint8_t new_cmd_ready = FALSE;
 
@@ -112,10 +145,11 @@ uint8_t new_cmd_ready = FALSE;
 actuator_t actuators[NUM_ACTUATORS];
 
 
-typedef enum UART_receive_state_t{
+typedef enum serial_receive_state_t{
 	STORE_BYTE,
 	CHECK_FOR_END
-}UART_receive_state_t;
+}serial_receive_state_t;
+
 
 /* USER CODE END PV */
 
@@ -197,6 +231,24 @@ static void update_commands(void);
  */
 uint16_t calc_dutycycle(int16_t cmd);
 
+/**
+ * @function : run_RX_state_machine
+ * @brief : parses external command messages
+ * @param byte : received byte
+ * @return none
+ * @author Aaron Hunter
+ * */
+void run_RX_state_machine(uint8_t byte);
+
+/**
+ * @function : run_SPI_RX_state_machine
+ * @brief : parses external SPI command messages
+ * @param byte : received byte
+ * @return none
+ * @author Aaron Hunter
+ * */
+void run_SPI_RX_state_machine(uint8_t byte);
+
 
 /* USER CODE END PFP */
 
@@ -232,6 +284,7 @@ int main(void)
   /* initialize the circular buffers */
   init_buffer(rxbuf_p);
   init_buffer(txbuf_p);
+  init_buffer(spi_rxbuf_p);
 
 
   /* USER CODE END Init */
@@ -287,7 +340,12 @@ int main(void)
 		  UART_parse_message();
 		  msg_recvd = FALSE;
 	  }
+
 	  if(ctrl_tmr_expired == TRUE){
+		  tick_counter++;
+		  if (tick_counter % SPI_TICKS == 0) {
+			  spi_counter_expired = TRUE;
+		  }
 		  if( new_cmd_ready == TRUE){ //only update commands on change
 			  update_commands();// update command targets
 			  new_cmd_ready = FALSE;
@@ -295,11 +353,19 @@ int main(void)
 		  ctrl_tmr_expired = FALSE; //reset timer
 	  }
 
+	  /* check for errors to the UART circular buffers */
 	  if(cbuf_write_err == TRUE){
 		  msg_length = sprintf(msg, "Message read error ");
 		  UART_print(msg,msg_length);
 		  cbuf_write_err = FALSE;
 	  }
+
+	  if(spi_counter_expired == TRUE){
+		  spi_counter_expired = FALSE; // reset SPI counter
+		  // write SPI test message
+		  HAL_SPI_TransmitReceive(&hspi2, SPI_TX_buffer, SPI_RX_buffer, 9, 1000);
+	  }
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -728,11 +794,11 @@ static void MX_SPI2_Init(void)
   hspi2.Instance = SPI2;
   hspi2.Init.Mode = SPI_MODE_MASTER;
   hspi2.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi2.Init.DataSize = SPI_DATASIZE_4BIT;
+  hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.NSS = SPI_NSS_HARD_OUTPUT;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -779,7 +845,7 @@ static void MX_SPI6_Init(void)
   hspi6.Init.DataSize = SPI_DATASIZE_16BIT;
   hspi6.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi6.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi6.Init.NSS = SPI_NSS_SOFT;
+  hspi6.Init.NSS = SPI_NSS_HARD_INPUT;
   hspi6.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi6.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi6.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -1876,10 +1942,9 @@ static void init_actuators(void){
  * @return none
  * @author Aaron Hunter
  * */
-void run_RX_state_machine(uint8_t byte)
-{
-	static UART_receive_state_t current_state= STORE_BYTE;
-	UART_receive_state_t next_state;
+void run_RX_state_machine(uint8_t byte){
+	static serial_receive_state_t current_state= STORE_BYTE;
+	serial_receive_state_t next_state;
 	uint8_t end_bytes[2] = {0xe1, 0xe2};
 
 	switch(current_state){
@@ -1900,6 +1965,39 @@ void run_RX_state_machine(uint8_t byte)
 			break;
 	}
 	current_state = next_state;
+}
+
+/**
+ * @function : run_SPI_RX_state_machine
+ * @brief : parses external SPI command messages
+ * @param byte : received byte
+ * @return none
+ * @author Aaron Hunter
+ * */
+void run_SPI_RX_state_machine(uint8_t byte){
+	static serial_receive_state_t current_state= STORE_BYTE;
+	serial_receive_state_t next_state;
+	uint8_t end_bytes[2] = {0xe1, 0xe2};
+
+	switch(current_state){
+		case(STORE_BYTE):
+			if(byte == end_bytes[0]){
+				next_state = CHECK_FOR_END;
+			}else{
+				next_state = STORE_BYTE;
+			}
+			break;
+		case(CHECK_FOR_END):
+			if(byte == end_bytes[1]){
+				spi_msg_rcvd = TRUE;
+			}
+			next_state = STORE_BYTE;
+			break;
+		default:
+			break;
+	}
+	current_state = next_state;
+
 }
 
 /**
