@@ -44,6 +44,7 @@
 #define PERIOD (24000-1)
 #define MAXDUTYCYCLE PERIOD
 #define MICRON_1 1000
+#define MICRON_10 10000
 #define CMD_VEC_LENGTH (NUM_ACTUATORS * 2)
 #define CMD_HDR_LENGTH 3
 #define END1 0xe1
@@ -125,18 +126,14 @@ union command {
 	int16_t vals[NUM_ACTUATORS];  //displacement commands in nanometers
 	uint8_t bytes[NUM_ACTUATORS *2];  // byte equivalents
 } reference;
-union command * ref_p = &reference;
+union command* ref_p = &reference;
 
 static int16_t cmd_ref[NUM_ACTUATORS] = {0};  //displacement commands in nanometers
 
 /* TODO */
 /* We need the actual bytes to transmit, not the short ints-->either set up a union, or calculate the bytes externally */
-static int16_t rnd_vals[NUM_ACTUATORS] = {-850, -50, 922, -645, -895, 29, 175, 586, 259, 232, 381, -190, 447, 163, -1012, 863, 619, -861, 213, 390, -83, 592, 903, -845, 313, -833};  //random displacement commands in nanometers
+static int16_t rnd_vals[NUM_ACTUATORS] = {-850, -50, 922, -10000, -895, 29, 175, 586, 259, 232, 381, -190, 447, 163, -1012, 863, 619, -861, 213, 390, -83, 592, 903, -845, 313, -833};  //random displacement commands in nanometers
 
-// store rnd_vals into command vector
-
-//memcpy(reference, rnd_vals[], NUM_ACTUATORS*(sizeof(int16_t)));  // get the data
-memcpy(ref_p, rnd_vals[], NUM_ACTUATORS*(sizeof(int16_t)));  // doesn't work--need to investigate
 
 uint8_t cmd_bytes[NUM_ACTUATORS * 2] = {0};
 uint8_t new_cmd_ready = FALSE;
@@ -266,10 +263,11 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+
 	/* init all actuators to a small displacement */
 	int i = {0};
 	for(i = 0; i < NUM_ACTUATORS; i++){
-		cmd_ref[i] = MICRON_1;
+		reference.vals[i] = MICRON_10;
 	}
 	new_cmd_ready = TRUE; // tell main to update the actuator dutycycles
   /* USER CODE END 1 */
@@ -320,6 +318,7 @@ int main(void)
 
   init_channels(); // start PWM generation
   init_actuators(); // set up the actuators
+  HAL_GPIO_WritePin(ACTUATOR_ENABLE_MCU_GPIO_Port, ACTUATOR_ENABLE_MCU_Pin, GPIO_PIN_SET); // Turn on actuator power
 
   /* Say hello to the outside world */
   uint8_t msg[BUFFER_SIZE];
@@ -1771,7 +1770,8 @@ static void UART_parse_message(void){
 
 	if(strcmp(msg_type,msg_hdr)==0 ){
 
-		memcpy(cmd_ref, &msg_buffer[CMD_HDR_LENGTH],NUM_ACTUATORS*(sizeof(int16_t)));  // get the data
+//		memcpy(cmd_ref, &msg_buffer[CMD_HDR_LENGTH],NUM_ACTUATORS*(sizeof(int16_t)));  // get the data
+		memcpy(reference.vals, &msg_buffer[CMD_HDR_LENGTH],NUM_ACTUATORS*(sizeof(int16_t)));  // get the data
 
 		n_bytes = sprintf(response, " Values: %d, %d ", msg_buffer[length -3], msg_buffer[length -2]);
 		UART_print(response, n_bytes);  // echo the first and last values
@@ -2012,8 +2012,10 @@ static void update_commands(void){
 	uint16_t dutycycle;
 
 	for(i = 0; i<NUM_ACTUATORS; i++){
-		phase = (cmd_ref[i]>0);  // phase is set to zero for negative commands, one for positive
-		dutycycle = calc_dutycycle(abs(cmd_ref[i])); // compute the dutycycle from the reference command
+//		phase = (cmd_ref[i]>0);  // phase is set to zero for negative commands, one for positive
+//		dutycycle = calc_dutycycle(abs(cmd_ref[i])); // compute the dutycycle from the reference command
+		phase = (reference.vals[i]>0);  // phase is set to zero for negative commands, one for positive
+		dutycycle = calc_dutycycle(abs(reference.vals[i])); // compute the dutycycle from the reference command
 		*(actuators[i].dutycycle) = dutycycle;  // set the duty cycle
 		HAL_GPIO_WritePin(actuators[i].phase_port, actuators[i].phase_pin, phase);  // set the phase pin
 	}
