@@ -51,6 +51,7 @@
 #define END2 0xe2
 #define SPI_BUFFER_SIZE 1000
 #define SPI_TICKS 10000
+#define SPI_MSG_SIZE 6
 
 /* USER CODE END PD */
 
@@ -105,15 +106,15 @@ volatile int cbuf_write_err = FALSE;
 
 
 /* SPI circular RX buffer */
-circular_buffer_t spi_rxbuf;
-circular_buffer_t* spi_rxbuf_p = &spi_rxbuf; // buffer handle pointer
+circular_buffer_t spirx_cbuf;
+circular_buffer_t* spirx_cbuf_p = &spirx_cbuf; // buffer handle pointer
 
 /* SPI test message and buffers */
-uint8_t SPI_TX_buffer[] = "KASM TEST";
+uint8_t SPI_TX_buffer[] = {0};
 uint8_t SPI_RX_buffer[SPI_BUFFER_SIZE] = {0};
 
 /* SPI flags and signals */
-int spi_msg_rcvd = FALSE;
+int spi_packet_rcvd = FALSE;
 int spi_counter_expired = FALSE;
 
 
@@ -282,7 +283,7 @@ int main(void)
   /* initialize the circular buffers */
   init_buffer(rxbuf_p);
   init_buffer(txbuf_p);
-  init_buffer(spi_rxbuf_p);
+  init_buffer(spirx_cbuf_p);
 
 
   /* USER CODE END Init */
@@ -326,6 +327,9 @@ int main(void)
   msg_length = sprintf((char *) msg,"KASM Application Starting \r\n");
   UART_print((char *) msg, msg_length);
 
+  SPI_TX_buffer[0] = 0xaa;
+  HAL_SPI_TransmitReceive_IT(&hspi6, SPI_TX_buffer, SPI_RX_buffer, SPI_MSG_SIZE);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -359,10 +363,16 @@ int main(void)
 		  cbuf_write_err = FALSE;
 	  }
 
-	  if(spi_counter_expired == TRUE){
-		  spi_counter_expired = FALSE; // reset SPI counter
-		  // write SPI test message
-		  HAL_SPI_TransmitReceive(&hspi2, SPI_TX_buffer, SPI_RX_buffer, 9, 1000);
+	  if(spi_packet_rcvd == TRUE){
+		  HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin,GPIO_PIN_RESET);
+		  msg_length = sprintf((char *) msg,"Packet received \r\n");
+		  UART_print((char *) msg, msg_length);
+		  // restart SPI bus
+		  HAL_SPI_TransmitReceive_IT(&hspi6, SPI_TX_buffer, SPI_RX_buffer, SPI_MSG_SIZE);
+		  msg_length = sprintf((char *) msg,"%x %x %x %x \r\n",SPI_RX_buffer[0],SPI_RX_buffer[1],SPI_RX_buffer[2],SPI_RX_buffer[3]);
+		  UART_print((char *) msg, msg_length);
+
+		  spi_packet_rcvd = FALSE; // reset SPI packet flag
 	  }
 
     /* USER CODE END WHILE */
@@ -841,7 +851,7 @@ static void MX_SPI6_Init(void)
   hspi6.Instance = SPI6;
   hspi6.Init.Mode = SPI_MODE_SLAVE;
   hspi6.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi6.Init.DataSize = SPI_DATASIZE_16BIT;
+  hspi6.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi6.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi6.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi6.Init.NSS = SPI_NSS_HARD_INPUT;
@@ -864,6 +874,7 @@ static void MX_SPI6_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN SPI6_Init 2 */
+//  SPI6->IER |= (SPI_IER_TXPIE|SPI_IER_RXPIE);
 
   /* USER CODE END SPI6_Init 2 */
 
@@ -1577,7 +1588,7 @@ static void MX_UART4_Init(void)
   LL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /* UART4 interrupt Init */
-  NVIC_SetPriority(UART4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
+  NVIC_SetPriority(UART4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),2, 0));
   NVIC_EnableIRQ(UART4_IRQn);
 
   /* USER CODE BEGIN UART4_Init 1 */
@@ -1989,7 +2000,7 @@ void run_SPI_RX_state_machine(uint8_t byte){
 			break;
 		case(CHECK_FOR_END):
 			if(byte == end_bytes[1]){
-				spi_msg_rcvd = TRUE;
+				spi_packet_rcvd = TRUE;
 			}
 			next_state = STORE_BYTE;
 			break;
@@ -2039,6 +2050,16 @@ uint16_t calc_dutycycle(int16_t cmd){
 	if(dutycycle < min_dutycycle) dutycycle = min_dutycycle;
 	if(dutycycle > max_dutycycle) dutycycle = max_dutycycle;
 	return dutycycle;
+}
+
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
+	uint8_t byte;
+
+	HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin,GPIO_PIN_SET); // indicate that the interrupt has fired
+//	byte = SPI6->RXDR; // read SPI6 RX FIFO
+//	SPI_TX_buffer[0] = byte;
+//	SPI6->TXDR = byte; // echo the byte back
+	spi_packet_rcvd = TRUE; // signal main that there is data to be processed
 }
 
 
