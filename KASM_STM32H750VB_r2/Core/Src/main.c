@@ -51,7 +51,7 @@
 #define END2 0xe2
 #define SPI_BUFFER_SIZE 1000
 #define SPI_TICKS 10000
-#define SPI_MSG_SIZE 6
+#define SPI_MSG_SIZE 52
 
 /* USER CODE END PD */
 
@@ -110,7 +110,7 @@ circular_buffer_t spirx_cbuf;
 circular_buffer_t* spirx_cbuf_p = &spirx_cbuf; // buffer handle pointer
 
 /* SPI test message and buffers */
-uint8_t SPI_TX_buffer[] = {0};
+uint8_t SPI_TX_buffer[SPI_MSG_SIZE] = {0};
 uint8_t SPI_RX_buffer[SPI_BUFFER_SIZE] = {0};
 
 /* SPI flags and signals */
@@ -367,10 +367,17 @@ int main(void)
 		  HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin,GPIO_PIN_RESET);
 		  msg_length = sprintf((char *) msg,"Packet received \r\n");
 		  UART_print((char *) msg, msg_length);
+
+		  int i = {0};
+		  for(i = 0; i < SPI_MSG_SIZE; i++){
+			  msg_length = sprintf((char *) msg,"%x ",SPI_RX_buffer[i]);
+			  UART_print((char *) msg, msg_length);
+		  }
+		  msg_length = sprintf((char *) msg,"\r\n");
+		  UART_print((char *) msg, msg_length);
+
 		  // restart SPI bus
 		  HAL_SPI_TransmitReceive_IT(&hspi6, SPI_TX_buffer, SPI_RX_buffer, SPI_MSG_SIZE);
-		  msg_length = sprintf((char *) msg,"%x %x %x %x \r\n",SPI_RX_buffer[0],SPI_RX_buffer[1],SPI_RX_buffer[2],SPI_RX_buffer[3]);
-		  UART_print((char *) msg, msg_length);
 
 		  spi_packet_rcvd = FALSE; // reset SPI packet flag
 	  }
@@ -2053,12 +2060,15 @@ uint16_t calc_dutycycle(int16_t cmd){
 }
 
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
-	uint8_t byte;
 
+	int i={0};
 	HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin,GPIO_PIN_SET); // indicate that the interrupt has fired
-//	byte = SPI6->RXDR; // read SPI6 RX FIFO
-//	SPI_TX_buffer[0] = byte;
-//	SPI6->TXDR = byte; // echo the byte back
+
+	for(i=0;i<SPI_MSG_SIZE;i++){
+		SPI_TX_buffer[i] = SPI_RX_buffer[i];  // echo byte back to host
+	}
+	memcpy(SPI_TX_buffer,SPI_RX_buffer,SPI_MSG_SIZE*sizeof(uint8_t));
+
 	spi_packet_rcvd = TRUE; // signal main that there is data to be processed
 }
 
