@@ -51,7 +51,7 @@
 #define END2 0xe2
 #define SPI_BUFFER_SIZE 1000
 #define SPI_TICKS 10000
-#define SPI_MSG_SIZE 52
+#define SPI_MSG_SIZE 54
 
 /* USER CODE END PD */
 
@@ -61,6 +61,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+
+CRC_HandleTypeDef hcrc;
 
 HRTIM_HandleTypeDef hhrtim;
 
@@ -148,6 +150,8 @@ typedef enum serial_receive_state_t{
 	CHECK_FOR_END
 }serial_receive_state_t;
 
+uint16_t test_data[2] = {0};
+
 
 /* USER CODE END PV */
 
@@ -172,6 +176,7 @@ static void MX_TIM15_Init(void);
 static void MX_TIM16_Init(void);
 static void MX_UART4_Init(void);
 static void MX_SPI6_Init(void);
+static void MX_CRC_Init(void);
 /* USER CODE BEGIN PFP */
 
 
@@ -271,6 +276,9 @@ int main(void)
 		reference.vals[i] = MICRON_10;
 	}
 	new_cmd_ready = TRUE; // tell main to update the actuator dutycycles
+
+	test_data[0] = 0xdead;
+	test_data[1] = 0xbeef;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -315,6 +323,7 @@ int main(void)
   MX_TIM16_Init();
   MX_UART4_Init();
   MX_SPI6_Init();
+  MX_CRC_Init();
   /* USER CODE BEGIN 2 */
 
   init_channels(); // start PWM generation
@@ -375,6 +384,11 @@ int main(void)
 		  }
 		  msg_length = sprintf((char *) msg,"\r\n");
 		  UART_print((char *) msg, msg_length);
+
+		  uint32_t crc_val = HAL_CRC_Calculate(&hcrc, (uint32_t*) &SPI_RX_buffer,SPI_MSG_SIZE/2);
+		  msg_length = sprintf((char *) msg,"CRC check %x\r\n", crc_val);
+		  UART_print((char *) msg, msg_length);
+
 
 		  // restart SPI bus
 		  HAL_SPI_TransmitReceive_IT(&hspi6, SPI_TX_buffer, SPI_RX_buffer, SPI_MSG_SIZE);
@@ -445,6 +459,53 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief CRC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_CRC_Init(void)
+{
+
+  /* USER CODE BEGIN CRC_Init 0 */
+
+  /* USER CODE END CRC_Init 0 */
+
+  /* USER CODE BEGIN CRC_Init 1 */
+
+  /* USER CODE END CRC_Init 1 */
+  hcrc.Instance = CRC;
+  hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_DISABLE;
+  hcrc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_DISABLE;
+  hcrc.Init.GeneratingPolynomial = 15717;
+  hcrc.Init.CRCLength = CRC_POLYLENGTH_16B;
+  hcrc.Init.InitValue = 65535;
+  hcrc.Init.InputDataInversionMode = CRC_INPUTDATA_INVERSION_NONE;
+  hcrc.Init.OutputDataInversionMode = CRC_OUTPUTDATA_INVERSION_DISABLE;
+  hcrc.InputDataFormat = CRC_INPUTDATA_FORMAT_HALFWORDS;
+  if (HAL_CRC_Init(&hcrc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN CRC_Init 2 */
+  hcrc.Instance = CRC;
+  hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_DISABLE;
+  hcrc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_DISABLE;
+  hcrc.Init.GeneratingPolynomial = 15717;
+  hcrc.Init.CRCLength = CRC_POLYLENGTH_16B;
+  hcrc.Init.InitValue = 65535;
+  hcrc.Init.InputDataInversionMode = CRC_INPUTDATA_INVERSION_NONE;
+  hcrc.Init.OutputDataInversionMode = CRC_OUTPUTDATA_INVERSION_DISABLE;
+  hcrc.InputDataFormat = CRC_INPUTDATA_FORMAT_HALFWORDS;
+  if (HAL_CRC_Init(&hcrc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE END CRC_Init 2 */
+
 }
 
 /**
