@@ -374,9 +374,8 @@ int main(void)
 
 	  if(spi_packet_rcvd == TRUE){
 		  HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin,GPIO_PIN_RESET);
-		  msg_length = sprintf((char *) msg,"Packet received \r\n");
-		  UART_print((char *) msg, msg_length);
 
+#ifdef SPI_TESTING
 		  int i = {0};
 		  for(i = 0; i < SPI_MSG_SIZE; i++){
 			  msg_length = sprintf((char *) msg,"%x ",SPI_RX_buffer[i]);
@@ -384,10 +383,24 @@ int main(void)
 		  }
 		  msg_length = sprintf((char *) msg,"\r\n");
 		  UART_print((char *) msg, msg_length);
+#endif
 
+		  // check crc for transmission errors
 		  uint32_t crc_val = HAL_CRC_Calculate(&hcrc, (uint32_t*) &SPI_RX_buffer,SPI_MSG_SIZE/2);
+
+#ifdef SPI_TESTING
 		  msg_length = sprintf((char *) msg,"CRC check %x\r\n", crc_val);
 		  UART_print((char *) msg, msg_length);
+#endif
+
+		  if(crc_val == 0){
+			  msg_length = sprintf((char *) msg,"Valid SPI command vector received \r\n");
+			  UART_print((char *) msg, msg_length);
+			  // copy memory into command vector
+			  memcpy(reference.vals, &SPI_RX_buffer, NUM_ACTUATORS*(sizeof(int16_t)));
+			  // inform main of a new command
+			  new_cmd_ready = TRUE;
+		  }
 
 
 		  // restart SPI bus
