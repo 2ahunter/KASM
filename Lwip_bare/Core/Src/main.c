@@ -64,23 +64,19 @@ union udp_data{
 
 union udp_data udp_rx;
 
-uint8_t UDP_RX_buf[UDP_BUF_SIZE] = {0};
 
 
-/* SPI test message and buffers */
-uint8_t SPI1_TX_buf[SPI_BUF_SIZE] = {0};
-uint8_t SPI1_RX_buf[SPI_BUF_SIZE] = {0};
-
-uint8_t SPI2_TX_buf[SPI_BUF_SIZE] = {0};
-uint8_t SPI2_RX_buf[SPI_BUF_SIZE] = {0};
+/* SPI buffers */
 
 union cmd_data {
     uint8_t bytes[SPI_BUF_SIZE];
     int16_t values[SPI_BUF_SIZE/2];
 };
 
-union cmd_data spi1_data;
-union cmd_data spi2_data;
+union cmd_data spi1_tx;
+union cmd_data spi2_tx;
+union cmd_data spi1_rx;
+union cmd_data spi2_rx;
 
 uint8_t spi_state = 0;
 uint8_t spi_complete = 0;
@@ -89,6 +85,8 @@ uint8_t spi_data_ready = 0;
 uint8_t udp_avail = 0;
 
 uint32_t sys_time_ms = 0;
+uint32_t start = 0;
+uint32_t end = 0;
 
 
 /* USER CODE END PV */
@@ -109,7 +107,7 @@ void udp_receive_callback( void* arg,              // User argument - udp_recv `
                            u16_t port );
 
 uint32_t sys_time(void);
-static void print_spi_buf();
+
 
 /* USER CODE END PFP */
 
@@ -167,18 +165,12 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   HAL_TIM_Base_Start_IT(&htim2);
-	memset(SPI1_TX_buf, 0, sizeof(SPI1_TX_buf));
-	memset(SPI2_RX_buf, 0, sizeof(SPI2_RX_buf));
+	memset(&spi1_tx.bytes, 0, sizeof(spi1_tx.bytes));
+	memset(&spi2_tx.bytes, 0, sizeof(spi2_tx.bytes));
 
 	char msg[1024] = { 0 };
 
 	print_uart3("Starting KASM Interface\r\n");
-
-//	sprintf(msg,"APB2=%d\n", HAL_RCC_GetPCLK2Freq());
-//	print_uart3(msg);
-
-	sprintf(msg, "System time (microsec): %d\r\n", sys_time());
-	print_uart3(msg);
 
 	/*wait for IP address to be assigned. DHCP can take a few seconds*/
 
@@ -198,9 +190,6 @@ int main(void)
 	sprintf(msg, "Gateway: %s\r\n", ip4addr_ntoa(netif_ip4_gw(&gnetif)));
 	print_uart3(msg);
 
-	sprintf(msg, "System time (microsec): %d\r\n", sys_time());
-	print_uart3(msg);
-
 	u16_t port = 5001; // port to listen from
 
 	struct udp_pcb *my_udp = udp_new();
@@ -216,7 +205,8 @@ int main(void)
 		MX_LWIP_Process();
 
 		if(spi_data_ready==1){
-//			print_spi_buf();
+			sprintf(msg, "Elapsed time from receipt of ethernet to spi complete %lu\r\n", end-start);
+			print_uart3(msg);
 			spi_data_ready=0;
 		}
 
@@ -519,28 +509,26 @@ void udp_receive_callback( void* arg,              // User argument - udp_recv `
                            const ip_addr_t* addr,  // Address of sender
                            u16_t port ){
 
-	char * msg[100]={0};
-	// process data
+
+	// process the data
 	uint16_t udp_size = p->len;
-	memcpy(&udp_rx.bytes,p->payload, udp_size);
+	memcpy(udp_rx.bytes,p->payload, udp_size);
 	/* data are big endian and need to be converted to little endian */
 	int size = udp_size/2;
 	for(int i=0; i < size; i++) {
 		udp_rx.values[i] = __builtin_bswap16(udp_rx.values[i]);
 	}
 
-
 	// handle data here and distribute to individual SPI channels
-	memcpy(&spi1_data.values, &udp_rx.values, udp_size);
-	memcpy(&spi2_data.values, &udp_rx.values, udp_size);
-	for(int i=0; i<size; i++ ){
-		sprintf(msg, "value[%d] = %d \r\n", i, spi2_data.values[i]);
-		print_uart3(msg);
-	}
+	memcpy(spi1_tx.values, udp_rx.values, udp_size);
+	memcpy(spi2_tx.values, udp_rx.values, udp_size);
 
 
-	HAL_SPI_TransmitReceive_IT(&hspi1, &spi1_data.bytes, SPI1_RX_buf, udp_size);
-	HAL_SPI_TransmitReceive_IT(&hspi2, &spi2_data.bytes, SPI2_RX_buf, udp_size);
+	// Send data to SPI peripherals
+	start = sys_time();
+	HAL_SPI_TransmitReceive_IT(&hspi1, spi1_tx.bytes, spi1_rx.bytes, udp_size);
+	end = sys_time();
+	HAL_SPI_TransmitReceive_IT(&hspi2, spi2_tx.bytes, spi2_rx.bytes, udp_size);
 
 	// free pbuf
 	pbuf_free(p);
@@ -566,13 +554,6 @@ void HAL_SPI_TxRxCpltCallback (SPI_HandleTypeDef *hspi) {
 	return;
 }
 
-static void print_spi_buf(){
-	char * msg[SPI_BUF_SIZE]={0};
-	for(int i=0; i< SPI_BUF_SIZE/2; i++) {
-		sprintf(msg, "Value %d: %d\r\n",i, spi2_data.values[i]);
-		print_uart3(msg);
-	}
-}
 
 /* USER CODE END 4 */
 
