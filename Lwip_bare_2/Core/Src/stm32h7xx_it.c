@@ -180,11 +180,63 @@ void DMA1_Stream0_IRQHandler(void)
 void DMA1_Stream1_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA1_Stream1_IRQn 0 */
+	extern uint8_t spi_txfer_complete;
+	extern uint16_t spi1_rx_buffer[];
+	extern uint8_t spi_buffer_length_bytes;
+
+	// Check if the Transfer Complete flag is set
+	if (LL_DMA_IsActiveFlag_TC1(DMA1)) {
+		// 1. Clear the flag immediately (CRITICAL: if you don't, the ISR will loop forever)
+		LL_DMA_ClearFlag_TC1(DMA1);
+		// 2. Invalidate the cache so the cache data isn't populated to the rx buffer:
+		SCB_InvalidateDCache_by_Addr((uint32_t*) spi1_rx_buffer, spi_buffer_length_bytes);
+		// set a flag informing main of completion
+//		spi_txfer_complete = 1;
+	}
 
   /* USER CODE END DMA1_Stream1_IRQn 0 */
   /* USER CODE BEGIN DMA1_Stream1_IRQn 1 */
 
   /* USER CODE END DMA1_Stream1_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA1 stream2 global interrupt.
+  */
+void DMA1_Stream2_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Stream2_IRQn 0 */
+
+
+  /* USER CODE END DMA1_Stream2_IRQn 0 */
+  /* USER CODE BEGIN DMA1_Stream2_IRQn 1 */
+
+  /* USER CODE END DMA1_Stream2_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA1 stream3 global interrupt.
+  */
+void DMA1_Stream3_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Stream3_IRQn 0 */
+	extern uint8_t spi_txfer_complete;
+	extern uint16_t spi2_rx_buffer[];
+	extern uint8_t spi_buffer_length_bytes;
+
+	// Check if the Transfer Complete flag is set
+	if (LL_DMA_IsActiveFlag_TC3(DMA1)) {
+		// 1. Clear the flag immediately (CRITICAL: if you don't, the ISR will loop forever)
+		LL_DMA_ClearFlag_TC3(DMA1);
+		// 2. Invalidate the cache so the cache data isn't populated to the rx buffer:
+		SCB_InvalidateDCache_by_Addr((uint32_t*) spi2_rx_buffer, spi_buffer_length_bytes);
+//		spi_txfer_complete = 1; // set a flag informing main of completion
+	}
+
+  /* USER CODE END DMA1_Stream3_IRQn 0 */
+  /* USER CODE BEGIN DMA1_Stream3_IRQn 1 */
+
+  /* USER CODE END DMA1_Stream3_IRQn 1 */
 }
 
 /**
@@ -216,6 +268,32 @@ void SPI1_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles SPI2 global interrupt.
+  */
+void SPI2_IRQHandler(void)
+{
+  /* USER CODE BEGIN SPI2_IRQn 0 */
+
+  /* USER CODE END SPI2_IRQn 0 */
+  /* USER CODE BEGIN SPI2_IRQn 1 */
+
+  /* USER CODE END SPI2_IRQn 1 */
+}
+
+/**
+  * @brief This function handles SPI3 global interrupt.
+  */
+void SPI3_IRQHandler(void)
+{
+  /* USER CODE BEGIN SPI3_IRQn 0 */
+
+  /* USER CODE END SPI3_IRQn 0 */
+  /* USER CODE BEGIN SPI3_IRQn 1 */
+
+  /* USER CODE END SPI3_IRQn 1 */
+}
+
+/**
   * @brief This function handles TIM6 global interrupt, DAC1_CH1 and DAC1_CH2 underrun error interrupts.
   */
 void TIM6_DAC_IRQHandler(void)
@@ -230,6 +308,83 @@ void TIM6_DAC_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles DMA2 stream0 global interrupt.
+  */
+void DMA2_Stream0_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA2_Stream0_IRQn 0 */
+
+  /* USER CODE END DMA2_Stream0_IRQn 0 */
+  /* USER CODE BEGIN DMA2_Stream0_IRQn 1 */
+
+  /* USER CODE END DMA2_Stream0_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA2 stream1 global interrupt.
+  */
+void DMA2_Stream1_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA2_Stream1_IRQn 0 */
+	extern uint8_t spi_txfer_complete;
+	extern uint16_t spi3_rx_buffer[];
+	extern uint8_t spi_buffer_length_bytes;
+
+	// Check if the Transfer Complete flag is set
+	if (LL_DMA_IsActiveFlag_TC1(DMA2)) {
+		// 1. Clear the flag immediately (CRITICAL: if you don't, the ISR will loop forever)
+		LL_DMA_ClearFlag_TC1(DMA2);
+		// 2. Invalidate the cache so the cache data isn't populated to the rx buffer:
+		SCB_InvalidateDCache_by_Addr((uint32_t*) spi3_rx_buffer, spi_buffer_length_bytes);
+
+	}
+
+  /* USER CODE END DMA2_Stream1_IRQn 0 */
+  /* USER CODE BEGIN DMA2_Stream1_IRQn 1 */
+
+  /* USER CODE END DMA2_Stream1_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA2 stream2 global interrupt.
+  */
+void DMA2_Stream2_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA2_Stream2_IRQn 0 */
+
+  /* USER CODE END DMA2_Stream2_IRQn 0 */
+  /* USER CODE BEGIN DMA2_Stream2_IRQn 1 */
+
+  /* USER CODE END DMA2_Stream2_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA2 stream3 global interrupt.
+  */
+void DMA2_Stream3_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA2_Stream3_IRQn 0 */
+	extern uint8_t spi_txfer_complete;
+	extern uint16_t spi4_rx_buffer[];
+	extern uint8_t spi_buffer_length_bytes;
+
+	// Check if the Transfer Complete flag is set
+	if (LL_DMA_IsActiveFlag_TC3(DMA2)) {
+		// 1. Clear the flag immediately (CRITICAL: if you don't, the ISR will loop forever)
+		LL_DMA_ClearFlag_TC3(DMA2);
+		// 2. Invalidate the cache so the cache data isn't populated to the rx buffer:
+		SCB_InvalidateDCache_by_Addr((uint32_t*) spi4_rx_buffer, spi_buffer_length_bytes);
+		// set a flag informing main of completion
+		spi_txfer_complete = 1;
+	}
+
+  /* USER CODE END DMA2_Stream3_IRQn 0 */
+  /* USER CODE BEGIN DMA2_Stream3_IRQn 1 */
+
+  /* USER CODE END DMA2_Stream3_IRQn 1 */
+}
+
+/**
   * @brief This function handles Ethernet global interrupt.
   */
 void ETH_IRQHandler(void)
@@ -241,6 +396,19 @@ void ETH_IRQHandler(void)
   /* USER CODE BEGIN ETH_IRQn 1 */
 
   /* USER CODE END ETH_IRQn 1 */
+}
+
+/**
+  * @brief This function handles SPI4 global interrupt.
+  */
+void SPI4_IRQHandler(void)
+{
+  /* USER CODE BEGIN SPI4_IRQn 0 */
+
+  /* USER CODE END SPI4_IRQn 0 */
+  /* USER CODE BEGIN SPI4_IRQn 1 */
+
+  /* USER CODE END SPI4_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */

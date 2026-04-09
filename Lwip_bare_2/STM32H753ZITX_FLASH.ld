@@ -169,10 +169,10 @@ SECTIONS
   .dma_buffer (NOLOAD) :
 	{
 	  . = ALIGN(32);
-	  *(.dma_buffer)
-	  *(.dma_buffer.*)
+	  KEEP(*(.dma_buffer))
+	  KEEP(*(.dma_buffer.*))
 	  . = ALIGN(32);
-	} > RAM_D1
+	} >RAM_D2
 
  .lwip_sec (NOLOAD) :
   {
