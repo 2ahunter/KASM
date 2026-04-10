@@ -44,10 +44,14 @@
 #define PERIOD (24000-1)
 #define MAXDUTYCYCLE PERIOD
 #define MICRON_1 1000
+#define MICRON_10 10000
 #define CMD_VEC_LENGTH (NUM_ACTUATORS * 2)
 #define CMD_HDR_LENGTH 3
 #define END1 0xe1
 #define END2 0xe2
+#define SPI_BUFFER_SIZE 1000
+#define SPI_TICKS 10000
+#define SPI_MSG_SIZE 54
 
 /* USER CODE END PD */
 
@@ -57,6 +61,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+
+CRC_HandleTypeDef hcrc;
 
 HRTIM_HandleTypeDef hhrtim;
 
@@ -100,11 +106,38 @@ volatile int rx_collision_count = 0;
 volatile int tx_collision_count = 0;
 volatile int cbuf_write_err = FALSE;
 
+
+/* SPI circular RX buffer */
+circular_buffer_t spirx_cbuf;
+circular_buffer_t* spirx_cbuf_p = &spirx_cbuf; // buffer handle pointer
+
+/* SPI test message and buffers */
+uint8_t SPI_TX_buffer[SPI_MSG_SIZE] = {0};
+uint8_t SPI_RX_buffer[SPI_BUFFER_SIZE] = {0};
+
+/* SPI flags and signals */
+int spi_packet_rcvd = FALSE;
+int spi_counter_expired = FALSE;
+
+
 /* Period timer flag */
+uint32_t tick_counter = 0;  // use the period counter as a clock
 uint8_t ctrl_tmr_expired = FALSE;
 
 /* Command reference vector */
+union command {
+	int16_t vals[NUM_ACTUATORS];  //displacement commands in nanometers
+	uint8_t bytes[NUM_ACTUATORS *2];  // byte equivalents
+} reference;
+union command* ref_p = &reference;
+
 static int16_t cmd_ref[NUM_ACTUATORS] = {0};  //displacement commands in nanometers
+
+/* TODO */
+/* We need the actual bytes to transmit, not the short ints-->either set up a union, or calculate the bytes externally */
+static int16_t rnd_vals[NUM_ACTUATORS] = {-850, -50, 922, -10000, -895, 29, 175, 586, 259, 232, 381, -190, 447, 163, -1012, 863, 619, -861, 213, 390, -83, 592, 903, -845, 313, -833};  //random displacement commands in nanometers
+
+
 uint8_t cmd_bytes[NUM_ACTUATORS * 2] = {0};
 uint8_t new_cmd_ready = FALSE;
 
@@ -112,10 +145,13 @@ uint8_t new_cmd_ready = FALSE;
 actuator_t actuators[NUM_ACTUATORS];
 
 
-typedef enum UART_receive_state_t{
+typedef enum serial_receive_state_t{
 	STORE_BYTE,
 	CHECK_FOR_END
-}UART_receive_state_t;
+}serial_receive_state_t;
+
+uint16_t test_data[2] = {0};
+
 
 /* USER CODE END PV */
 
@@ -140,6 +176,7 @@ static void MX_TIM15_Init(void);
 static void MX_TIM16_Init(void);
 static void MX_UART4_Init(void);
 static void MX_SPI6_Init(void);
+static void MX_CRC_Init(void);
 /* USER CODE BEGIN PFP */
 
 
@@ -197,6 +234,24 @@ static void update_commands(void);
  */
 uint16_t calc_dutycycle(int16_t cmd);
 
+/**
+ * @function : run_RX_state_machine
+ * @brief : parses external command messages
+ * @param byte : received byte
+ * @return none
+ * @author Aaron Hunter
+ * */
+void run_RX_state_machine(uint8_t byte);
+
+/**
+ * @function : run_SPI_RX_state_machine
+ * @brief : parses external SPI command messages
+ * @param byte : received byte
+ * @return none
+ * @author Aaron Hunter
+ * */
+void run_SPI_RX_state_machine(uint8_t byte);
+
 
 /* USER CODE END PFP */
 
@@ -214,12 +269,16 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+
 	/* init all actuators to a small displacement */
 	int i = {0};
 	for(i = 0; i < NUM_ACTUATORS; i++){
-		cmd_ref[i] = MICRON_1;
+		reference.vals[i] = MICRON_10;
 	}
 	new_cmd_ready = TRUE; // tell main to update the actuator dutycycles
+
+	test_data[0] = 0xdead;
+	test_data[1] = 0xbeef;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -232,6 +291,7 @@ int main(void)
   /* initialize the circular buffers */
   init_buffer(rxbuf_p);
   init_buffer(txbuf_p);
+  init_buffer(spirx_cbuf_p);
 
 
   /* USER CODE END Init */
@@ -263,16 +323,21 @@ int main(void)
   MX_TIM16_Init();
   MX_UART4_Init();
   MX_SPI6_Init();
+  MX_CRC_Init();
   /* USER CODE BEGIN 2 */
 
   init_channels(); // start PWM generation
   init_actuators(); // set up the actuators
+  HAL_GPIO_WritePin(ACTUATOR_ENABLE_MCU_GPIO_Port, ACTUATOR_ENABLE_MCU_Pin, GPIO_PIN_SET); // Turn on actuator power
 
   /* Say hello to the outside world */
   uint8_t msg[BUFFER_SIZE];
   int msg_length = 0;
   msg_length = sprintf((char *) msg,"KASM Application Starting \r\n");
   UART_print((char *) msg, msg_length);
+
+  SPI_TX_buffer[0] = 0xaa;
+  HAL_SPI_TransmitReceive_IT(&hspi6, SPI_TX_buffer, SPI_RX_buffer, SPI_MSG_SIZE);
 
   /* USER CODE END 2 */
 
@@ -287,7 +352,12 @@ int main(void)
 		  UART_parse_message();
 		  msg_recvd = FALSE;
 	  }
+
 	  if(ctrl_tmr_expired == TRUE){
+		  tick_counter++;
+		  if (tick_counter % SPI_TICKS == 0) {
+			  spi_counter_expired = TRUE;
+		  }
 		  if( new_cmd_ready == TRUE){ //only update commands on change
 			  update_commands();// update command targets
 			  new_cmd_ready = FALSE;
@@ -295,11 +365,50 @@ int main(void)
 		  ctrl_tmr_expired = FALSE; //reset timer
 	  }
 
+	  /* check for errors to the UART circular buffers */
 	  if(cbuf_write_err == TRUE){
 		  msg_length = sprintf(msg, "Message read error ");
 		  UART_print(msg,msg_length);
 		  cbuf_write_err = FALSE;
 	  }
+
+	  if(spi_packet_rcvd == TRUE){
+		  HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin,GPIO_PIN_RESET);
+
+#ifdef SPI_TESTING
+		  int i = {0};
+		  for(i = 0; i < SPI_MSG_SIZE; i++){
+			  msg_length = sprintf((char *) msg,"%x ",SPI_RX_buffer[i]);
+			  UART_print((char *) msg, msg_length);
+		  }
+		  msg_length = sprintf((char *) msg,"\r\n");
+		  UART_print((char *) msg, msg_length);
+#endif
+
+		  // check crc for transmission errors
+		  uint32_t crc_val = HAL_CRC_Calculate(&hcrc, (uint32_t*) &SPI_RX_buffer,SPI_MSG_SIZE/2);
+
+#ifdef SPI_TESTING
+		  msg_length = sprintf((char *) msg,"CRC check %x\r\n", crc_val);
+		  UART_print((char *) msg, msg_length);
+#endif
+
+		  if(crc_val == 0){
+			  msg_length = sprintf((char *) msg,"Valid SPI command vector received \r\n");
+			  UART_print((char *) msg, msg_length);
+			  // copy memory into command vector
+			  memcpy(reference.vals, &SPI_RX_buffer, NUM_ACTUATORS*(sizeof(int16_t)));
+			  // inform main of a new command
+			  new_cmd_ready = TRUE;
+		  }
+
+
+		  // restart SPI bus
+		  HAL_SPI_TransmitReceive_IT(&hspi6, SPI_TX_buffer, SPI_RX_buffer, SPI_MSG_SIZE);
+
+		  spi_packet_rcvd = FALSE; // reset SPI packet flag
+	  }
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -363,6 +472,53 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief CRC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_CRC_Init(void)
+{
+
+  /* USER CODE BEGIN CRC_Init 0 */
+
+  /* USER CODE END CRC_Init 0 */
+
+  /* USER CODE BEGIN CRC_Init 1 */
+
+  /* USER CODE END CRC_Init 1 */
+  hcrc.Instance = CRC;
+  hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_DISABLE;
+  hcrc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_DISABLE;
+  hcrc.Init.GeneratingPolynomial = 15717;
+  hcrc.Init.CRCLength = CRC_POLYLENGTH_16B;
+  hcrc.Init.InitValue = 65535;
+  hcrc.Init.InputDataInversionMode = CRC_INPUTDATA_INVERSION_NONE;
+  hcrc.Init.OutputDataInversionMode = CRC_OUTPUTDATA_INVERSION_DISABLE;
+  hcrc.InputDataFormat = CRC_INPUTDATA_FORMAT_HALFWORDS;
+  if (HAL_CRC_Init(&hcrc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN CRC_Init 2 */
+  hcrc.Instance = CRC;
+  hcrc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_DISABLE;
+  hcrc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_DISABLE;
+  hcrc.Init.GeneratingPolynomial = 15717;
+  hcrc.Init.CRCLength = CRC_POLYLENGTH_16B;
+  hcrc.Init.InitValue = 65535;
+  hcrc.Init.InputDataInversionMode = CRC_INPUTDATA_INVERSION_NONE;
+  hcrc.Init.OutputDataInversionMode = CRC_OUTPUTDATA_INVERSION_DISABLE;
+  hcrc.InputDataFormat = CRC_INPUTDATA_FORMAT_HALFWORDS;
+  if (HAL_CRC_Init(&hcrc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE END CRC_Init 2 */
+
 }
 
 /**
@@ -728,11 +884,11 @@ static void MX_SPI2_Init(void)
   hspi2.Instance = SPI2;
   hspi2.Init.Mode = SPI_MODE_MASTER;
   hspi2.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi2.Init.DataSize = SPI_DATASIZE_4BIT;
+  hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.NSS = SPI_NSS_HARD_OUTPUT;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -776,10 +932,10 @@ static void MX_SPI6_Init(void)
   hspi6.Instance = SPI6;
   hspi6.Init.Mode = SPI_MODE_SLAVE;
   hspi6.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi6.Init.DataSize = SPI_DATASIZE_16BIT;
+  hspi6.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi6.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi6.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi6.Init.NSS = SPI_NSS_SOFT;
+  hspi6.Init.NSS = SPI_NSS_HARD_INPUT;
   hspi6.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi6.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi6.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -799,6 +955,7 @@ static void MX_SPI6_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN SPI6_Init 2 */
+//  SPI6->IER |= (SPI_IER_TXPIE|SPI_IER_RXPIE);
 
   /* USER CODE END SPI6_Init 2 */
 
@@ -1512,7 +1669,7 @@ static void MX_UART4_Init(void)
   LL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /* UART4 interrupt Init */
-  NVIC_SetPriority(UART4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
+  NVIC_SetPriority(UART4_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),2, 0));
   NVIC_EnableIRQ(UART4_IRQn);
 
   /* USER CODE BEGIN UART4_Init 1 */
@@ -1705,7 +1862,8 @@ static void UART_parse_message(void){
 
 	if(strcmp(msg_type,msg_hdr)==0 ){
 
-		memcpy(cmd_ref, &msg_buffer[CMD_HDR_LENGTH],NUM_ACTUATORS*(sizeof(int16_t)));  // get the data
+//		memcpy(cmd_ref, &msg_buffer[CMD_HDR_LENGTH],NUM_ACTUATORS*(sizeof(int16_t)));  // get the data
+		memcpy(reference.vals, &msg_buffer[CMD_HDR_LENGTH],NUM_ACTUATORS*(sizeof(int16_t)));  // get the data
 
 		n_bytes = sprintf(response, " Values: %d, %d ", msg_buffer[length -3], msg_buffer[length -2]);
 		UART_print(response, n_bytes);  // echo the first and last values
@@ -1876,10 +2034,9 @@ static void init_actuators(void){
  * @return none
  * @author Aaron Hunter
  * */
-void run_RX_state_machine(uint8_t byte)
-{
-	static UART_receive_state_t current_state= STORE_BYTE;
-	UART_receive_state_t next_state;
+void run_RX_state_machine(uint8_t byte){
+	static serial_receive_state_t current_state= STORE_BYTE;
+	serial_receive_state_t next_state;
 	uint8_t end_bytes[2] = {0xe1, 0xe2};
 
 	switch(current_state){
@@ -1903,6 +2060,39 @@ void run_RX_state_machine(uint8_t byte)
 }
 
 /**
+ * @function : run_SPI_RX_state_machine
+ * @brief : parses external SPI command messages
+ * @param byte : received byte
+ * @return none
+ * @author Aaron Hunter
+ * */
+void run_SPI_RX_state_machine(uint8_t byte){
+	static serial_receive_state_t current_state= STORE_BYTE;
+	serial_receive_state_t next_state;
+	uint8_t end_bytes[2] = {0xe1, 0xe2};
+
+	switch(current_state){
+		case(STORE_BYTE):
+			if(byte == end_bytes[0]){
+				next_state = CHECK_FOR_END;
+			}else{
+				next_state = STORE_BYTE;
+			}
+			break;
+		case(CHECK_FOR_END):
+			if(byte == end_bytes[1]){
+				spi_packet_rcvd = TRUE;
+			}
+			next_state = STORE_BYTE;
+			break;
+		default:
+			break;
+	}
+	current_state = next_state;
+
+}
+
+/**
  * @function : update_commands
  * @brief : sets the new actuator command targets
  * @return none
@@ -1914,8 +2104,10 @@ static void update_commands(void){
 	uint16_t dutycycle;
 
 	for(i = 0; i<NUM_ACTUATORS; i++){
-		phase = (cmd_ref[i]>0);  // phase is set to zero for negative commands, one for positive
-		dutycycle = calc_dutycycle(abs(cmd_ref[i])); // compute the dutycycle from the reference command
+//		phase = (cmd_ref[i]>0);  // phase is set to zero for negative commands, one for positive
+//		dutycycle = calc_dutycycle(abs(cmd_ref[i])); // compute the dutycycle from the reference command
+		phase = (reference.vals[i]>0);  // phase is set to zero for negative commands, one for positive
+		dutycycle = calc_dutycycle(abs(reference.vals[i])); // compute the dutycycle from the reference command
 		*(actuators[i].dutycycle) = dutycycle;  // set the duty cycle
 		HAL_GPIO_WritePin(actuators[i].phase_port, actuators[i].phase_pin, phase);  // set the phase pin
 	}
@@ -1939,6 +2131,19 @@ uint16_t calc_dutycycle(int16_t cmd){
 	if(dutycycle < min_dutycycle) dutycycle = min_dutycycle;
 	if(dutycycle > max_dutycycle) dutycycle = max_dutycycle;
 	return dutycycle;
+}
+
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi){
+
+	int i={0};
+	HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin,GPIO_PIN_SET); // indicate that the interrupt has fired
+
+	for(i=0;i<SPI_MSG_SIZE;i++){
+		SPI_TX_buffer[i] = SPI_RX_buffer[i];  // echo byte back to host
+	}
+	memcpy(SPI_TX_buffer,SPI_RX_buffer,SPI_MSG_SIZE*sizeof(uint8_t));
+
+	spi_packet_rcvd = TRUE; // signal main that there is data to be processed
 }
 
 

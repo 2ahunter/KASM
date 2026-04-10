@@ -81,6 +81,51 @@ void HAL_MspInit(void)
 }
 
 /**
+* @brief CRC MSP Initialization
+* This function configures the hardware resources used in this example
+* @param hcrc: CRC handle pointer
+* @retval None
+*/
+void HAL_CRC_MspInit(CRC_HandleTypeDef* hcrc)
+{
+  if(hcrc->Instance==CRC)
+  {
+  /* USER CODE BEGIN CRC_MspInit 0 */
+
+  /* USER CODE END CRC_MspInit 0 */
+    /* Peripheral clock enable */
+    __HAL_RCC_CRC_CLK_ENABLE();
+  /* USER CODE BEGIN CRC_MspInit 1 */
+
+  /* USER CODE END CRC_MspInit 1 */
+
+  }
+
+}
+
+/**
+* @brief CRC MSP De-Initialization
+* This function freeze the hardware resources used in this example
+* @param hcrc: CRC handle pointer
+* @retval None
+*/
+void HAL_CRC_MspDeInit(CRC_HandleTypeDef* hcrc)
+{
+  if(hcrc->Instance==CRC)
+  {
+  /* USER CODE BEGIN CRC_MspDeInit 0 */
+
+  /* USER CODE END CRC_MspDeInit 0 */
+    /* Peripheral clock disable */
+    __HAL_RCC_CRC_CLK_DISABLE();
+  /* USER CODE BEGIN CRC_MspDeInit 1 */
+
+  /* USER CODE END CRC_MspDeInit 1 */
+  }
+
+}
+
+/**
 * @brief HRTIM MSP Initialization
 * This function configures the hardware resources used in this example
 * @param hhrtim: HRTIM handle pointer
@@ -485,6 +530,9 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi)
     GPIO_InitStruct.Alternate = GPIO_AF8_SPI6;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+    /* SPI6 interrupt Init */
+    HAL_NVIC_SetPriority(SPI6_IRQn, 1, 0);
+    HAL_NVIC_EnableIRQ(SPI6_IRQn);
   /* USER CODE BEGIN SPI6_MspInit 1 */
 
   /* USER CODE END SPI6_MspInit 1 */
@@ -542,6 +590,8 @@ void HAL_SPI_MspDeInit(SPI_HandleTypeDef* hspi)
 
     HAL_GPIO_DeInit(GPIOB, GPIO_PIN_4|GPIO_PIN_5);
 
+    /* SPI6 interrupt DeInit */
+    HAL_NVIC_DisableIRQ(SPI6_IRQn);
   /* USER CODE BEGIN SPI6_MspDeInit 1 */
 
   /* USER CODE END SPI6_MspDeInit 1 */
