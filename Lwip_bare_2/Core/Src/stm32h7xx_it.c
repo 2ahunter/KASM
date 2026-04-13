@@ -180,7 +180,6 @@ void DMA1_Stream0_IRQHandler(void)
 void DMA1_Stream1_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA1_Stream1_IRQn 0 */
-	extern uint8_t spi_txfer_complete;
 	extern uint16_t spi1_rx_buffer[];
 	extern uint8_t spi_buffer_length_bytes;
 
@@ -220,7 +219,6 @@ void DMA1_Stream2_IRQHandler(void)
 void DMA1_Stream3_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA1_Stream3_IRQn 0 */
-	extern uint8_t spi_txfer_complete;
 	extern uint16_t spi2_rx_buffer[];
 	extern uint8_t spi_buffer_length_bytes;
 
@@ -245,6 +243,8 @@ void DMA1_Stream3_IRQHandler(void)
 void TIM2_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM2_IRQn 0 */
+	extern uint32_t sys_time_ms;
+	sys_time_ms++; // increment ms counter on rollover
 
   /* USER CODE END TIM2_IRQn 0 */
   HAL_TIM_IRQHandler(&htim2);
@@ -390,6 +390,9 @@ void DMA2_Stream3_IRQHandler(void)
 void ETH_IRQHandler(void)
 {
   /* USER CODE BEGIN ETH_IRQn 0 */
+	extern  uint32_t sys_time_ms;
+	extern uint32_t start_time_us;
+	start_time_us = sys_time_ms * 1000 + (TIM2->CNT) / 240;
 
   /* USER CODE END ETH_IRQn 0 */
   HAL_ETH_IRQHandler(&heth);

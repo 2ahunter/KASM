@@ -79,9 +79,9 @@ __attribute__((section(".dma_buffer"), used, aligned(32)))   uint16_t spi4_rx_bu
 volatile uint8_t spi_txfer_complete = 0; // All DMA SPI transfers are complete
 volatile uint8_t spi_data_ready = 0; // flag to indicate SPI data is ready for processing
 
-uint32_t sys_time_ms = 0;
-uint32_t start = 0;
-uint32_t end = 0;
+volatile uint32_t sys_time_ms = {0};
+volatile uint32_t start_time_us={0};
+volatile uint32_t end_time_us={0};
 
 /* USER CODE END PV */
 
@@ -97,6 +97,8 @@ static void MX_SPI2_Init(void);
 static void MX_SPI3_Init(void);
 static void MX_SPI4_Init(void);
 /* USER CODE BEGIN PFP */
+void DWT_Init(void);
+void update_stats(uint32_t val);
 void SPI1_DMA_txfer(void);
 void SPI2_DMA_txfer(void);
 void SPI3_DMA_txfer(void);
@@ -167,6 +169,8 @@ int main(void)
   MX_SPI3_Init();
   MX_SPI4_Init();
   /* USER CODE BEGIN 2 */
+  DWT_Init();
+
 	HAL_TIM_Base_Start_IT(&htim2);
 	memset(&spi1_tx_buffer, 0, sizeof(spi1_tx_buffer));
 	memset(&spi1_rx_buffer, 0, sizeof(spi1_rx_buffer));
@@ -219,12 +223,11 @@ int main(void)
 		MX_LWIP_Process();
 
 		if (spi_data_ready == 1) {
-			sprintf(msg,
-					"Elapsed time from receipt of ethernet to spi complete %lu\r\n",
-					end - start);
-			print_uart3(msg);
+//			sprintf(msg,
+//					"Elapsed time from receipt of ethernet to spi complete %lu\r\n",
+//					(end_time_us - start_time_us);
+//			print_uart3(msg);
 
-			start = sys_time();
 			SPI1_DMA_txfer(); // initiate SPI transfers DMA version
 			SPI2_DMA_txfer();
 			SPI3_DMA_txfer();
@@ -232,16 +235,17 @@ int main(void)
 			spi_data_ready = 0;
 		}
 		if (spi_txfer_complete == 1) {
-			end = sys_time();
-			char msg[100];
-			sprintf(msg, "DMA transfer complete in %lu microseconds\r\n",
-					end - start);
-			print_uart3(msg);
+			end_time_us = sys_time();
+			update_stats(end_time_us - start_time_us);
+//			char msg[100];
+//			sprintf(msg, "t=%lu\r\n",
+//					end_time_us - start_time_us);
+//			print_uart3(msg);
 			/* read transferred bytes */
-			for (int i = 0; i < NUM_ACTUATORS; i++) {
-				sprintf(msg, "Actuator %d : %d \r\n", i, spi4_rx_buffer[i]);
-				print_uart3(msg);
-			}
+//			for (int i = 0; i < NUM_ACTUATORS; i++) {
+//				sprintf(msg, "Actuator %d : %d \r\n", i, spi4_rx_buffer[i]);
+//				print_uart3(msg);
+//			}
 			spi_txfer_complete = 0;
 		}
 
@@ -1020,13 +1024,53 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void update_stats(uint32_t val){
+	const uint32_t n = {1000};
+	static uint32_t vals[1000];
+	static uint32_t index={0};
+	uint32_t sum={0};
+	double ave={0.0};
+	static uint32_t min = {40};
+	static uint32_t max = {0};
+	char msg[100];
+
+	if(val < min) min = val;
+	if(val > max) max = val;
+
+	vals[index] = val;
+	index++;
+
+	if(index >= n){
+		/* compute stats */
+		for(int i=0; i<n; i++){
+			sum +=vals[i];
+		}
+		ave = (double)sum/(double)n;
+		sprintf(msg, "%lu\t %f \t %lu\r\n", min, ave, max);
+		print_uart3(msg);
+		/* reset stats counter and vals*/
+		index=0;
+		min = 40;
+		max = 0;
+	}
+
+}
+
+void DWT_Init(void){
+	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+	DWT->CYCCNT = 0;
+	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+}
+
 void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 		struct udp_pcb *upcb,   // Receiving Protocol Control Block
 		struct pbuf *p,         // Pointer to Datagram
 		const ip_addr_t *addr,  // Address of sender
 		u16_t port) {
 
-	start = sys_time();
+	start_time_us = sys_time();
 	// process the data
 	uint16_t udp_size = p->len;
 	memcpy(udp_rx.bytes, p->payload, udp_size);
@@ -1045,7 +1089,7 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 
 	// signal main to initiate SPI transfer
 	spi_data_ready = 1;
-	end = sys_time();
+
 	pbuf_free(p);
 }
 
