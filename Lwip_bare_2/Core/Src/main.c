@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include<string.h>
+#include <inttypes.h>
 #include "print3.h"
 
 /* USER CODE END Includes */
@@ -53,6 +54,13 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
+
+
+typedef struct {
+    uint32_t ms;
+    uint32_t us;
+} split_time_t;
+
 extern struct netif gnetif;
 
 union udp_data {
@@ -62,6 +70,7 @@ union udp_data {
 
 union udp_data udp_rx;
 uint8_t spi_buffer_length_bytes = SPI_BUFFER_SIZE_BYTES;
+uint16_t test_val={0};
 
 /* SPI buffers */
 // Use compiler attributes to align to 32 bytes and pad the size to a multiple of 32
@@ -80,8 +89,14 @@ volatile uint8_t spi_txfer_complete = 0; // All DMA SPI transfers are complete
 volatile uint8_t spi_data_ready = 0; // flag to indicate SPI data is ready for processing
 
 volatile uint32_t sys_time_ms = {0};
-volatile uint32_t start_time_us={0};
-volatile uint32_t end_time_us={0};
+volatile split_time_t sys_time = {0};
+volatile split_time_t start_time = {0};
+volatile split_time_t end_time = {0};
+
+ip_addr_t client_addr;  // Address of sender; client_addr.addr is the actual value.
+uint16_t client_port;
+
+
 
 /* USER CODE END PV */
 
@@ -109,7 +124,7 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 		const ip_addr_t *addr,  // Address of sender
 		u16_t port);
 
-uint32_t sys_time(void);
+split_time_t get_sys_time(void);
 
 //HAL_StatusTypeDef print_uart3(const char *pData);
 
@@ -223,10 +238,6 @@ int main(void)
 		MX_LWIP_Process();
 
 		if (spi_data_ready == 1) {
-//			sprintf(msg,
-//					"Elapsed time from receipt of ethernet to spi complete %lu\r\n",
-//					(end_time_us - start_time_us);
-//			print_uart3(msg);
 
 			SPI1_DMA_txfer(); // initiate SPI transfers DMA version
 			SPI2_DMA_txfer();
@@ -235,25 +246,30 @@ int main(void)
 			spi_data_ready = 0;
 		}
 		if (spi_txfer_complete == 1) {
-			end_time_us = sys_time();
-			update_stats(end_time_us - start_time_us);
-//			char msg[100];
-//			sprintf(msg, "t=%lu\r\n",
-//					end_time_us - start_time_us);
-//			print_uart3(msg);
-			/* read transferred bytes */
-//			for (int i = 0; i < NUM_ACTUATORS; i++) {
-//				sprintf(msg, "Actuator %d : %d \r\n", i, spi4_rx_buffer[i]);
-//				print_uart3(msg);
-//			}
+			char msg[100];
+			end_time = get_sys_time();
+
+//			int len = sprintf(msg, "%d,%lu.%03lu,%lu.%03lu",test_val, start_time.ms, start_time.us, end_time.ms, end_time.us);
+			int len = sprintf(msg, "%d,%lu,%lu", test_val, (uint32_t)0, (uint32_t) TIM2->CNT);
+
+			struct pbuf *udp_buffer = pbuf_alloc(PBUF_TRANSPORT, len, PBUF_RAM);
+			if (udp_buffer != NULL) {
+				memcpy(udp_buffer->payload, msg, len);
+
+				// Pass the ADDRESS of our stored ip_addr_t
+				udp_sendto(my_udp, udp_buffer, &client_addr, client_port);
+
+				pbuf_free(udp_buffer);
+			}
+
 			spi_txfer_complete = 0;
 		}
 
-    /* USER CODE END WHILE */
+		/* USER CODE END WHILE */
 
-    /* USER CODE BEGIN 3 */
+		/* USER CODE BEGIN 3 */
 	}
-  /* USER CODE END 3 */
+	/* USER CODE END 3 */
 }
 
 /**
@@ -1025,37 +1041,7 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-void update_stats(uint32_t val){
-	const uint32_t n = {1000};
-	static uint32_t vals[1000];
-	static uint32_t index={0};
-	uint32_t sum={0};
-	double ave={0.0};
-	static uint32_t min = {40};
-	static uint32_t max = {0};
-	char msg[100];
 
-	if(val < min) min = val;
-	if(val > max) max = val;
-
-	vals[index] = val;
-	index++;
-
-	if(index >= n){
-		/* compute stats */
-		for(int i=0; i<n; i++){
-			sum +=vals[i];
-		}
-		ave = (double)sum/(double)n;
-		sprintf(msg, "%lu\t %f \t %lu\r\n", min, ave, max);
-		print_uart3(msg);
-		/* reset stats counter and vals*/
-		index=0;
-		min = 40;
-		max = 0;
-	}
-
-}
 
 void DWT_Init(void){
 	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
@@ -1070,7 +1056,15 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 		const ip_addr_t *addr,  // Address of sender
 		u16_t port) {
 
-	start_time_us = sys_time();
+
+	start_time = get_sys_time();
+	TIM2->CNT=0; // reset timer
+//	char msg[100];
+//	sprintf(msg, "start: %lu\r\n", start_time_us);
+//	print_uart3(msg);
+	// get sender ip address and port information
+	ip_addr_copy(client_addr, *addr);
+	client_port = port;
 	// process the data
 	uint16_t udp_size = p->len;
 	memcpy(udp_rx.bytes, p->payload, udp_size);
@@ -1080,6 +1074,7 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 	for (int i = 0; i < size; i++) {
 		udp_rx.values[i] = __builtin_bswap16(udp_rx.values[i]);
 	}
+	test_val = udp_rx.values[0];
 
 	/* handle data here and distribute to individual SPI channels */
 	memcpy(spi1_tx_buffer, udp_rx.values, udp_size);
@@ -1093,9 +1088,13 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 	pbuf_free(p);
 }
 
-uint32_t sys_time(void) {
-	uint32_t current = sys_time_ms * 1000 + (TIM2->CNT) / 240;
-	return (current); // current time in microseconds
+split_time_t get_sys_time(void) {
+	split_time_t current;
+
+	current.us = (TIM2->CNT);
+	current.ms = sys_time_ms;
+	current.us /=240;
+	return (current); // current time in millseconds
 
 }
 

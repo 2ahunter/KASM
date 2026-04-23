@@ -41,6 +41,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
+extern uint64_t sys_time_ms;
+extern uint64_t start_time_us;
 
 /* USER CODE END PV */
 
@@ -243,7 +245,7 @@ void DMA1_Stream3_IRQHandler(void)
 void TIM2_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM2_IRQn 0 */
-	extern uint32_t sys_time_ms;
+
 	sys_time_ms++; // increment ms counter on rollover
 
   /* USER CODE END TIM2_IRQn 0 */
@@ -390,9 +392,8 @@ void DMA2_Stream3_IRQHandler(void)
 void ETH_IRQHandler(void)
 {
   /* USER CODE BEGIN ETH_IRQn 0 */
-	extern  uint32_t sys_time_ms;
-	extern uint32_t start_time_us;
-	start_time_us = sys_time_ms * 1000 + (TIM2->CNT) / 240;
+
+//	start_time_us = sys_time_ms * 1000 + (TIM2->CNT) / 240;
 
   /* USER CODE END ETH_IRQn 0 */
   HAL_ETH_IRQHandler(&heth);
