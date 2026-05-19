@@ -20,9 +20,12 @@
 #include "main.h"
 #include "lwip.h"
 
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "dac80508.h"
+#include "print_uart3.h"
+#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -33,7 +36,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define UDP_BUFFER_SIZE 510 //bytes--largest value < 512 that is divisible by 3
+#define SPI_BUFFER_SIZE_BYTES 96 // keep 32 bit alignment, 3 bytes/actuator x 32 actuators
+#define SPI_BUFFER_SIZE_WORDS 48 // to keep 32 bit alignment
+#define DAC_ZERO (1<<16)/2
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,6 +55,38 @@ UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
 
+extern struct netif gnetif;
+
+struct DAC80508_Config dac_config;
+
+typedef struct cmd_frame{
+	uint8_t address;  // which DAC
+	uint16_t value;
+}cmd_frame;
+
+union udp_data {
+	uint8_t bytes[UDP_BUFFER_SIZE];
+	cmd_frame frame[UDP_BUFFER_SIZE / 3];
+}udp_rx;
+
+uint8_t spi_buffer_length_bytes = SPI_BUFFER_SIZE_BYTES;
+
+
+uint32_t spi_msg_size = 0; //used for signaling the current spi message size in the DMA section
+
+/* SPI buffers */
+// Use compiler attributes to align to 32 bytes and pad the size to a multiple of 32
+
+__attribute__((section(".dma_buffer"), used, aligned(32)))   uint8_t spi1_tx_buffer[SPI_BUFFER_SIZE_BYTES];
+__attribute__((section(".dma_buffer"), used, aligned(32)))   uint8_t spi1_rx_buffer[SPI_BUFFER_SIZE_BYTES];
+
+volatile uint8_t spi_txfer_complete = 0; // All DMA SPI transfers are complete
+volatile uint8_t spi_data_ready = 0; // flag to indicate SPI data is ready for processing
+
+uint32_t sys_time_ms = 0;
+uint32_t start = 0;
+uint32_t end = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -60,6 +98,14 @@ static void MX_SPI1_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
+void SPI1_DMA_txfer(void);
+void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
+		struct udp_pcb *upcb,   // Receiving Protocol Control Block
+		struct pbuf *p,         // Pointer to Datagram
+		const ip_addr_t *addr,  // Address of sender
+		u16_t port);
+
+uint32_t sys_time(void);
 
 /* USER CODE END PFP */
 
@@ -69,63 +115,130 @@ static void MX_TIM2_Init(void);
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
-int main(void)
-{
+ * @brief  The application entry point.
+ * @retval int
+ */
+int main(void) {
 
-  /* USER CODE BEGIN 1 */
+	/* USER CODE BEGIN 1 */
 
-  /* USER CODE END 1 */
+	/* USER CODE END 1 */
 
-  /* MPU Configuration--------------------------------------------------------*/
-  MPU_Config();
+	/* MPU Configuration--------------------------------------------------------*/
+	MPU_Config();
 
-  /* Enable the CPU Cache */
+	/* Enable the CPU Cache */
 
-  /* Enable I-Cache---------------------------------------------------------*/
-  SCB_EnableICache();
+	/* Enable I-Cache---------------------------------------------------------*/
+	SCB_EnableICache();
 
-  /* Enable D-Cache---------------------------------------------------------*/
-  SCB_EnableDCache();
+	/* Enable D-Cache---------------------------------------------------------*/
+	SCB_EnableDCache();
 
-  /* MCU Configuration--------------------------------------------------------*/
+	/* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+	HAL_Init();
 
-  /* USER CODE BEGIN Init */
+	/* USER CODE BEGIN Init */
+	dac_config.use_internal_ref = false;
+	dac_config.div_internal_ref = true;
+	dac_config.sync_mask = 0xffff; // broadcast enabled on all channels, sync enabled all channels
+	dac_config.channel_gain_mask = 0x0ff; // gain of 2 for all channels.
 
-  /* USER CODE END Init */
+	/* USER CODE END Init */
 
-  /* Configure the system clock */
-  SystemClock_Config();
+	/* Configure the system clock */
+	SystemClock_Config();
 
-  /* USER CODE BEGIN SysInit */
+	/* USER CODE BEGIN SysInit */
 
-  /* USER CODE END SysInit */
+	/* USER CODE END SysInit */
 
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_LWIP_Init();
-  MX_SPI1_Init();
-  MX_USART3_UART_Init();
-  MX_TIM2_Init();
-  /* USER CODE BEGIN 2 */
+	/* Initialize all configured peripherals */
+	MX_GPIO_Init();
+	MX_DMA_Init();
+	MX_LWIP_Init();
+	MX_SPI1_Init();
+	MX_USART3_UART_Init();
+	MX_TIM2_Init();
+	/* USER CODE BEGIN 2 */
+	HAL_TIM_Base_Start_IT(&htim2);
+	memset(&spi1_tx_buffer, 0, sizeof(spi1_tx_buffer));
+	memset(&spi1_rx_buffer, 0, sizeof(spi1_rx_buffer));
 
-  /* USER CODE END 2 */
+	char msg[1024] = { 0 };
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    /* USER CODE END WHILE */
+	print_uart3("Starting KASM Interface\r\n");
 
-    /* USER CODE BEGIN 3 */
-  }
-  /* USER CODE END 3 */
+	/*wait for IP address to be assigned. DHCP can take a few seconds*/
+
+	char no_ip[] = "0.0.0.0";
+
+	print_uart3("Waiting for IP address to be assigned\r\n");
+
+	while (strcmp(no_ip, ip4addr_ntoa(netif_ip4_addr(&gnetif))) == 0) {
+		MX_LWIP_Process();
+	}
+
+	/* Determine IP address */
+	sprintf(msg, "IP address: %s\r\n", ip4addr_ntoa(netif_ip4_addr(&gnetif)));
+	print_uart3(msg);
+	sprintf(msg, "Netmask: %s\r\n", ip4addr_ntoa(netif_ip4_netmask(&gnetif)));
+	print_uart3(msg);
+	sprintf(msg, "Gateway: %s\r\n", ip4addr_ntoa(netif_ip4_gw(&gnetif)));
+	print_uart3(msg);
+
+	u16_t port = 5001; // port to listen from
+
+	struct udp_pcb *my_udp = udp_new();
+
+	udp_bind(my_udp, IP_ADDR_ANY, port);
+	udp_recv(my_udp, udp_receive_callback, NULL);
+	if (((uint32_t) spi1_tx_buffer & 0xFF000000) != 0x30000000) {
+		sprintf(msg, "Buffer not in RAM D2: %lu\r\n",
+				(uint32_t) spi1_tx_buffer);
+		print_uart3(msg);
+	}
+
+	spi_msg_size = DAC80508_init(&dac_config, spi1_tx_buffer);
+	if(spi_msg_size > 0){
+		spi_data_ready = 1;
+	} else {
+		sprintf(msg, "DAC init returned %d \r\n", spi_msg_size);
+		print_uart3(msg);
+	}
+
+	/* USER CODE END 2 */
+
+	/* Infinite loop */
+	/* USER CODE BEGIN WHILE */
+	while (1) {
+		MX_LWIP_Process();
+
+		if (spi_data_ready == 1) {
+			sprintf(msg, "Sending %d bytes via SPI1 \r\n", spi_msg_size);
+			print_uart3(msg);
+			SPI1_DMA_txfer();
+			sprintf(msg, "Return from DMA_Txfer\r\n");
+			print_uart3(msg);
+			spi_data_ready = 0;
+		}
+		if (spi_txfer_complete == 1) {
+			char msg[100];
+
+			/* read transferred bytes */
+			for (int i = 0; i < 8; i++) {
+				sprintf(msg, "DAC[%d] : %d \r\n", i, udp_rx.frame[i].value);
+				print_uart3(msg);
+			}
+			spi_txfer_complete = 0;
+			/* USER CODE END WHILE */
+
+			/* USER CODE BEGIN 3 */
+		}
+		/* USER CODE END 3 */
+	}
 }
 
 /**
@@ -192,125 +305,130 @@ void SystemClock_Config(void)
   * @param None
   * @retval None
   */
-static void MX_SPI1_Init(void)
-{
+static void MX_SPI1_Init(void) {
 
-  /* USER CODE BEGIN SPI1_Init 0 */
+	/* USER CODE BEGIN SPI1_Init 0 */
+	LL_DMA_ConfigAddresses(DMA1, LL_DMA_STREAM_0, (uint32_t) spi1_tx_buffer,
+			(uint32_t) &(SPI1->TXDR), LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+	LL_DMA_ConfigAddresses(DMA1, LL_DMA_STREAM_1, (uint32_t) &(SPI1->RXDR),
+			(uint32_t) spi1_rx_buffer, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
 
-  /* USER CODE END SPI1_Init 0 */
+	/* USER CODE END SPI1_Init 0 */
 
-  LL_SPI_InitTypeDef SPI_InitStruct = {0};
+	LL_SPI_InitTypeDef SPI_InitStruct = { 0 };
 
-  LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+	LL_GPIO_InitTypeDef GPIO_InitStruct = { 0 };
+	RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = { 0 };
 
-  /** Initializes the peripherals clock
-  */
-  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_SPI1;
-  PeriphClkInitStruct.Spi123ClockSelection = RCC_SPI123CLKSOURCE_PLL;
-  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
+	/** Initializes the peripherals clock
+	 */
+	PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_SPI1;
+	PeriphClkInitStruct.Spi123ClockSelection = RCC_SPI123CLKSOURCE_PLL;
+	if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK) {
+		Error_Handler();
+	}
 
-  /* Peripheral clock enable */
-  LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_SPI1);
+	/* Peripheral clock enable */
+	LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_SPI1);
 
-  LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOA);
-  LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOB);
-  /**SPI1 GPIO Configuration
-  PA4   ------> SPI1_NSS
-  PA5   ------> SPI1_SCK
-  PA6   ------> SPI1_MISO
-  PB5   ------> SPI1_MOSI
-  */
-  GPIO_InitStruct.Pin = LL_GPIO_PIN_4|LL_GPIO_PIN_5|LL_GPIO_PIN_6;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
-  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_HIGH;
-  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-  GPIO_InitStruct.Alternate = LL_GPIO_AF_5;
-  LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+	LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOA);
+	LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOB);
+	/**SPI1 GPIO Configuration
+	 PA4   ------> SPI1_NSS
+	 PA5   ------> SPI1_SCK
+	 PA6   ------> SPI1_MISO
+	 PB5   ------> SPI1_MOSI
+	 */
+	GPIO_InitStruct.Pin = LL_GPIO_PIN_4 | LL_GPIO_PIN_5 | LL_GPIO_PIN_6;
+	GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
+	GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_HIGH;
+	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+	GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+	GPIO_InitStruct.Alternate = LL_GPIO_AF_5;
+	LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  GPIO_InitStruct.Pin = LL_GPIO_PIN_5;
-  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
-  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_HIGH;
-  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
-  GPIO_InitStruct.Alternate = LL_GPIO_AF_5;
-  LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+	GPIO_InitStruct.Pin = LL_GPIO_PIN_5;
+	GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
+	GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_HIGH;
+	GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+	GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+	GPIO_InitStruct.Alternate = LL_GPIO_AF_5;
+	LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /* SPI1 DMA Init */
+	/* SPI1 DMA Init */
 
-  /* SPI1_TX Init */
-  LL_DMA_SetPeriphRequest(DMA1, LL_DMA_STREAM_0, LL_DMAMUX1_REQ_SPI1_TX);
+	/* SPI1_TX Init */
+	LL_DMA_SetPeriphRequest(DMA1, LL_DMA_STREAM_0, LL_DMAMUX1_REQ_SPI1_TX);
 
-  LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_STREAM_0, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+	LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_STREAM_0,
+			LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
 
-  LL_DMA_SetStreamPriorityLevel(DMA1, LL_DMA_STREAM_0, LL_DMA_PRIORITY_LOW);
+	LL_DMA_SetStreamPriorityLevel(DMA1, LL_DMA_STREAM_0, LL_DMA_PRIORITY_LOW);
 
-  LL_DMA_SetMode(DMA1, LL_DMA_STREAM_0, LL_DMA_MODE_NORMAL);
+	LL_DMA_SetMode(DMA1, LL_DMA_STREAM_0, LL_DMA_MODE_NORMAL);
 
-  LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_STREAM_0, LL_DMA_PERIPH_NOINCREMENT);
+	LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_STREAM_0, LL_DMA_PERIPH_NOINCREMENT);
 
-  LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_STREAM_0, LL_DMA_MEMORY_INCREMENT);
+	LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_STREAM_0, LL_DMA_MEMORY_INCREMENT);
 
-  LL_DMA_SetPeriphSize(DMA1, LL_DMA_STREAM_0, LL_DMA_PDATAALIGN_BYTE);
+	LL_DMA_SetPeriphSize(DMA1, LL_DMA_STREAM_0, LL_DMA_PDATAALIGN_BYTE);
 
-  LL_DMA_SetMemorySize(DMA1, LL_DMA_STREAM_0, LL_DMA_MDATAALIGN_BYTE);
+	LL_DMA_SetMemorySize(DMA1, LL_DMA_STREAM_0, LL_DMA_MDATAALIGN_BYTE);
 
-  LL_DMA_EnableFifoMode(DMA1, LL_DMA_STREAM_0);
+	LL_DMA_EnableFifoMode(DMA1, LL_DMA_STREAM_0);
 
-  LL_DMA_SetFIFOThreshold(DMA1, LL_DMA_STREAM_0, LL_DMA_FIFOTHRESHOLD_1_2);
+	LL_DMA_SetFIFOThreshold(DMA1, LL_DMA_STREAM_0, LL_DMA_FIFOTHRESHOLD_1_2);
 
-  LL_DMA_SetMemoryBurstxfer(DMA1, LL_DMA_STREAM_0, LL_DMA_MBURST_SINGLE);
+	LL_DMA_SetMemoryBurstxfer(DMA1, LL_DMA_STREAM_0, LL_DMA_MBURST_SINGLE);
 
-  LL_DMA_SetPeriphBurstxfer(DMA1, LL_DMA_STREAM_0, LL_DMA_PBURST_SINGLE);
+	LL_DMA_SetPeriphBurstxfer(DMA1, LL_DMA_STREAM_0, LL_DMA_PBURST_SINGLE);
 
-  /* SPI1_RX Init */
-  LL_DMA_SetPeriphRequest(DMA1, LL_DMA_STREAM_1, LL_DMAMUX1_REQ_SPI1_RX);
+	/* SPI1_RX Init */
+	LL_DMA_SetPeriphRequest(DMA1, LL_DMA_STREAM_1, LL_DMAMUX1_REQ_SPI1_RX);
 
-  LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_STREAM_1, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+	LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_STREAM_1,
+			LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
 
-  LL_DMA_SetStreamPriorityLevel(DMA1, LL_DMA_STREAM_1, LL_DMA_PRIORITY_LOW);
+	LL_DMA_SetStreamPriorityLevel(DMA1, LL_DMA_STREAM_1, LL_DMA_PRIORITY_LOW);
 
-  LL_DMA_SetMode(DMA1, LL_DMA_STREAM_1, LL_DMA_MODE_NORMAL);
+	LL_DMA_SetMode(DMA1, LL_DMA_STREAM_1, LL_DMA_MODE_NORMAL);
 
-  LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_STREAM_1, LL_DMA_PERIPH_NOINCREMENT);
+	LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_STREAM_1, LL_DMA_PERIPH_NOINCREMENT);
 
-  LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_STREAM_1, LL_DMA_MEMORY_INCREMENT);
+	LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_STREAM_1, LL_DMA_MEMORY_INCREMENT);
 
-  LL_DMA_SetPeriphSize(DMA1, LL_DMA_STREAM_1, LL_DMA_PDATAALIGN_BYTE);
+	LL_DMA_SetPeriphSize(DMA1, LL_DMA_STREAM_1, LL_DMA_PDATAALIGN_BYTE);
 
-  LL_DMA_SetMemorySize(DMA1, LL_DMA_STREAM_1, LL_DMA_MDATAALIGN_BYTE);
+	LL_DMA_SetMemorySize(DMA1, LL_DMA_STREAM_1, LL_DMA_MDATAALIGN_BYTE);
 
-  LL_DMA_DisableFifoMode(DMA1, LL_DMA_STREAM_1);
+	LL_DMA_DisableFifoMode(DMA1, LL_DMA_STREAM_1);
 
-  /* SPI1 interrupt Init */
-  NVIC_SetPriority(SPI1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
-  NVIC_EnableIRQ(SPI1_IRQn);
+	/* SPI1 interrupt Init */
+	NVIC_SetPriority(SPI1_IRQn,
+			NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0, 0));
+	NVIC_EnableIRQ(SPI1_IRQn);
 
-  /* USER CODE BEGIN SPI1_Init 1 */
+	/* USER CODE BEGIN SPI1_Init 1 */
 
-  /* USER CODE END SPI1_Init 1 */
-  /* SPI1 parameter configuration*/
-  SPI_InitStruct.TransferDirection = LL_SPI_FULL_DUPLEX;
-  SPI_InitStruct.Mode = LL_SPI_MODE_MASTER;
-  SPI_InitStruct.DataWidth = LL_SPI_DATAWIDTH_24BIT;
-  SPI_InitStruct.ClockPolarity = LL_SPI_POLARITY_LOW;
-  SPI_InitStruct.ClockPhase = LL_SPI_PHASE_1EDGE;
-  SPI_InitStruct.NSS = LL_SPI_NSS_HARD_OUTPUT;
-  SPI_InitStruct.BaudRate = LL_SPI_BAUDRATEPRESCALER_DIV4;
-  SPI_InitStruct.BitOrder = LL_SPI_MSB_FIRST;
-  SPI_InitStruct.CRCCalculation = LL_SPI_CRCCALCULATION_DISABLE;
-  SPI_InitStruct.CRCPoly = 0x0;
-  LL_SPI_Init(SPI1, &SPI_InitStruct);
-  LL_SPI_SetStandard(SPI1, LL_SPI_PROTOCOL_MOTOROLA);
-  LL_SPI_SetFIFOThreshold(SPI1, LL_SPI_FIFO_TH_01DATA);
-  LL_SPI_EnableNSSPulseMgt(SPI1);
-  /* USER CODE BEGIN SPI1_Init 2 */
+	/* USER CODE END SPI1_Init 1 */
+	/* SPI1 parameter configuration*/
+	SPI_InitStruct.TransferDirection = LL_SPI_FULL_DUPLEX;
+	SPI_InitStruct.Mode = LL_SPI_MODE_MASTER;
+	SPI_InitStruct.DataWidth = LL_SPI_DATAWIDTH_8BIT;
+	SPI_InitStruct.ClockPolarity = LL_SPI_POLARITY_LOW;
+	SPI_InitStruct.ClockPhase = LL_SPI_PHASE_1EDGE;
+	SPI_InitStruct.NSS = LL_SPI_NSS_HARD_OUTPUT;
+	SPI_InitStruct.BaudRate = LL_SPI_BAUDRATEPRESCALER_DIV4;
+	SPI_InitStruct.BitOrder = LL_SPI_MSB_FIRST;
+	SPI_InitStruct.CRCCalculation = LL_SPI_CRCCALCULATION_DISABLE;
+	SPI_InitStruct.CRCPoly = 0x0;
+	LL_SPI_Init(SPI1, &SPI_InitStruct);
+	LL_SPI_SetStandard(SPI1, LL_SPI_PROTOCOL_MOTOROLA);
+	LL_SPI_SetFIFOThreshold(SPI1, LL_SPI_FIFO_TH_01DATA);
+	LL_SPI_EnableNSSPulseMgt(SPI1);
+	/* USER CODE BEGIN SPI1_Init 2 */
 
-  /* USER CODE END SPI1_Init 2 */
+	/* USER CODE END SPI1_Init 2 */
 
 }
 
@@ -462,6 +580,174 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
+		struct udp_pcb *upcb,   // Receiving Protocol Control Block
+		struct pbuf *p,         // Pointer to Datagram
+		const ip_addr_t *addr,  // Address of sender
+		u16_t port) {
+
+	char msg[100] = {0};
+	int i=0;
+
+	start = sys_time();
+	// process the data
+	uint16_t udp_size = p->len;
+	if(udp_size %3 != 0){
+		sprintf(msg, "udp->payload not divisible by 3!\r\n");
+		print_uart3(msg);
+		pbuf_free(p); // free bad UDP message buffer
+		return;
+	}
+
+	/* clear the SPI buffers of old values */
+	memset(spi1_tx_buffer,0,SPI_BUFFER_SIZE_BYTES);
+	memset(spi1_rx_buffer,0,SPI_BUFFER_SIZE_BYTES);
+	memset(udp_rx.bytes, 0, UDP_BUFFER_SIZE);
+	memcpy(udp_rx.bytes, p->payload, p->len);
+
+	int size = udp_size / 3; // a command has three bytes, let's loop through 3 at a time
+	for (i = 0; i < size; i++) {
+		udp_rx.frame[i].value = __builtin_bswap16(udp_rx.frame[i].value);
+
+		DAC80508_set_output(udp_rx.frame[i].address , udp_rx.frame[i].value , &spi1_tx_buffer[i*3]);
+	}
+	i++;
+	DAC80508_send_trigger(&spi1_tx_buffer[i*3]); //software trigger: sets all the outputs simultaneously
+	i++;
+	spi_msg_size = 3*i;
+
+	// signal main to initiate SPI transfer
+	spi_data_ready = 1;
+	end = sys_time();
+	pbuf_free(p);
+}
+
+uint32_t sys_time(void) {
+	uint32_t current = sys_time_ms * 1000 + (TIM2->CNT) / 240;
+	return (current); // current time in microseconds
+
+}
+
+/**************************************************************/
+void SPI1_DMA_txfer(void) {
+    // 1. Disable SPI to allow configuration of TSIZE
+    LL_SPI_Disable(SPI1);
+
+    // 2. Clear SPI Flags
+    LL_SPI_ClearFlag_EOT(SPI1);
+    LL_SPI_ClearFlag_TXTF(SPI1);
+    LL_SPI_ClearFlag_OVR(SPI1);
+    LL_SPI_ClearFlag_UDR(SPI1);
+
+    // 3. Cache Maintenance: Push TX buffer to RAM
+    SCB_CleanDCache_by_Addr((uint32_t*) spi1_tx_buffer, SPI_BUFFER_SIZE_BYTES);
+
+    // 4. Reset DMA Streams
+    LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_0);
+    LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_1);
+    while (LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_0));
+    while (LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_1));
+
+    // 5. Clear ALL DMA flags (including errors!)
+    // For DMA1 Stream 0 and 1 (Lower Interrupt Flag Clear Register)
+    DMA1->LIFCR = 0x0000003FU << 0;  // Stream 0
+    DMA1->LIFCR = 0x0000003FU << 6;  // Stream 1
+
+    // 6. Set Addresses and Lengths
+	LL_DMA_ConfigAddresses(DMA1, LL_DMA_STREAM_0, (uint32_t) spi1_tx_buffer,
+			(uint32_t) &(SPI1->TXDR), LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+	LL_DMA_ConfigAddresses(DMA1, LL_DMA_STREAM_1, (uint32_t) &(SPI1->RXDR),
+			(uint32_t) spi1_rx_buffer, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+
+    LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_0, spi_msg_size);
+    LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_1, spi_msg_size);
+
+    // 7. Enable Streams (RX first)
+    LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_1);
+    LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_0);
+
+    // 8. Configure SPI
+    LL_SPI_SetTransferSize(SPI1, spi_msg_size);
+    LL_SPI_EnableDMAReq_RX(SPI1);
+    LL_SPI_EnableDMAReq_TX(SPI1);
+    LL_DMA_EnableIT_TC(DMA1, LL_DMA_STREAM_1);
+
+    // 9. Clean FIFO and Enable
+    // Use 32-bit read if still in 24-bit mode, but 8-bit mode is safer
+    while (LL_SPI_IsActiveFlag_RXP(SPI1)) {
+        (void)SPI1->RXDR;
+    }
+
+    LL_SPI_Enable(SPI1);
+
+    // 10. GO
+    LL_SPI_StartMasterTransfer(SPI1);
+
+    char msg[50];
+    sprintf(msg, "SPI Transfer initiated\r\n");
+    print_uart3(msg);
+}
+
+//void SPI1_DMA_txfer(void) {
+//
+//	//0. Disable the peripheral to allow to set the TSize
+//	LL_SPI_Disable(SPI1);
+//	// 1. Clear ALL relevant SPI flags (EOT, TXTF, and Errors)
+//	// If any error flags are set, the SPI might refuse to start CSTART
+//	LL_SPI_ClearFlag_EOT(SPI1);
+//	LL_SPI_ClearFlag_TXTF(SPI1);
+//	LL_SPI_ClearFlag_OVR(SPI1);
+//	LL_SPI_ClearFlag_UDR(SPI1);
+//
+//	// 2. Cache Maintenance
+//	SCB_CleanDCache_by_Addr((uint32_t*) spi1_tx_buffer, SPI_BUFFER_SIZE_BYTES);
+//
+//	// 3. Ensure both DMA streams are fully disabled before reconfiguration
+//	LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_0);
+//	LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_1);
+//	while (LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_0))
+//		;
+//	while (LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_1))
+//		;
+//
+//	// 4. Clear DMA Interrupt Flags
+//	LL_DMA_ClearFlag_TC0(DMA1); // TX Stream
+//	LL_DMA_ClearFlag_TC1(DMA1); // RX Stream
+//
+//	// 5. Re-set lengths
+//	LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_0, spi_msg_size);
+//	LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_1, spi_msg_size);
+//
+//	// 6. Enable DMA Streams (RX FIRST!)
+//	LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_1);
+//	LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_0);
+//
+//	// 7. SPI Configuration & Start
+//	LL_SPI_SetTransferSize(SPI1, spi_msg_size);
+//
+//	// Enable the transfer complete IRQ
+//	LL_DMA_EnableIT_TC(DMA1, LL_DMA_STREAM_1);
+//
+//	// CRITICAL: Ensure DMA Requests are enabled in the SPI peripheral
+//	LL_SPI_EnableDMAReq_RX(SPI1);
+//	LL_SPI_EnableDMAReq_TX(SPI1);
+//
+//	if (!LL_SPI_IsEnabled(SPI1)) {
+//		// Add this right before LL_SPI_Enable(...)
+//		while (LL_SPI_IsActiveFlag_RXP(SPI1)) {
+//			(void) LL_SPI_ReceiveData16(SPI1); // Read and discard
+//		}
+//		LL_SPI_Enable(SPI1);
+//	}
+//	char msg[100];
+////	sprintf(msg, "SPI bytes to transfer: %d %d %d \r\n", spi1_tx_buffer[0], spi1_tx_buffer[1], spi1_tx_buffer[2]);
+////	print_uart3(msg);
+//	// Trigger the transaction
+//	LL_SPI_StartMasterTransfer(SPI1);
+//
+//	sprintf(msg, "SPI Transfer initiated\r\n");
+//	print_uart3(msg);
+//}
 
 /* USER CODE END 4 */
 

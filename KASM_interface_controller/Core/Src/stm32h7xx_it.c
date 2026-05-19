@@ -183,6 +183,19 @@ void DMA1_Stream1_IRQHandler(void)
 
   /* USER CODE END DMA1_Stream1_IRQn 0 */
   /* USER CODE BEGIN DMA1_Stream1_IRQn 1 */
+	extern uint8_t spi_txfer_complete;
+	extern uint16_t spi1_rx_buffer[];
+	extern uint8_t spi_buffer_length_bytes;
+
+	// Check if the Transfer Complete flag is set
+	if (LL_DMA_IsActiveFlag_TC1(DMA1)) {
+		// 1. Clear the flag immediately (CRITICAL: if you don't, the ISR will loop forever)
+		LL_DMA_ClearFlag_TC1(DMA1);
+		// 2. Invalidate the cache so the cache data isn't populated to the rx buffer:
+		SCB_InvalidateDCache_by_Addr((uint32_t*) spi1_rx_buffer, spi_buffer_length_bytes);
+		// set a flag informing main of completion
+//		spi_txfer_complete = 1;
+	}
 
   /* USER CODE END DMA1_Stream1_IRQn 1 */
 }
