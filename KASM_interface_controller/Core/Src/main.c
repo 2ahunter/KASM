@@ -40,6 +40,10 @@
 #define SPI_BUFFER_SIZE_BYTES 96 // keep 32 bit alignment, 3 bytes/actuator x 32 actuators
 #define SPI_BUFFER_SIZE_WORDS 48 // to keep 32 bit alignment
 #define DAC_ZERO (1<<16)/2
+#define COM_VERSION 0
+#define UDP_LENGTH 39
+#define UDP_EOM 0xdead
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -59,16 +63,19 @@ extern struct netif gnetif;
 
 struct DAC80508_Config dac_config;
 
+struct UDP_header{
+	uint8_t version;
+	uint32_t timestamp;
+};
+
 typedef struct cmd_frame{
 	uint8_t address;  // which DAC
 	uint16_t value;
 }cmd_frame;
 
-union udp_data {
-	uint8_t bytes[UDP_BUFFER_SIZE];
-	cmd_frame frame[UDP_BUFFER_SIZE / 3];
-}udp_rx;
 
+
+uint8_t udp_rx[UDP_BUFFER_SIZE]={0};
 uint8_t spi_buffer_length_bytes = SPI_BUFFER_SIZE_BYTES;
 
 
@@ -209,6 +216,9 @@ int main(void) {
 		print_uart3(msg);
 	}
 
+
+
+
 	/* USER CODE END 2 */
 
 	/* Infinite loop */
@@ -227,12 +237,13 @@ int main(void) {
 		if (spi_txfer_complete == 1) {
 			char msg[100];
 
-			/* read transferred bytes */
-			for (int i = 0; i < 8; i++) {
-				sprintf(msg, "DAC[%d] : %d \r\n", i, udp_rx.frame[i].value);
+			/* read returned bytes */
+			for (int i = 0; i < spi_msg_size; i++) {
+				sprintf(msg, "DAC[%d] : %d \r\n", i, spi1_rx_buffer[i]);
 				print_uart3(msg);
 			}
 			spi_txfer_complete = 0;
+			spi_msg_size=0; // reset msg size
 			/* USER CODE END WHILE */
 
 			/* USER CODE BEGIN 3 */
@@ -586,35 +597,52 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 		const ip_addr_t *addr,  // Address of sender
 		u16_t port) {
 
+	struct UDP_header header;
 	char msg[100] = {0};
 	int i=0;
+	int j=0;
+	uint8_t dac_addrs[DAC80508_NUM_CHANNELS] = {0};
+	uint16_t vals[DAC80508_NUM_CHANNELS] = {0};
+	uint16_t end = {0};
 
 	start = sys_time();
 	// process the data
 	uint16_t udp_size = p->len;
-	if(udp_size %3 != 0){
-		sprintf(msg, "udp->payload not divisible by 3!\r\n");
+	if(udp_size != UDP_EOM){
+		sprintf(msg, "Buffer size incorrect. Received %d, expected %d\r\n", udp_size, UDP_EOM);
 		print_uart3(msg);
-		pbuf_free(p); // free bad UDP message buffer
 		return;
 	}
 
 	/* clear the SPI buffers of old values */
 	memset(spi1_tx_buffer,0,SPI_BUFFER_SIZE_BYTES);
 	memset(spi1_rx_buffer,0,SPI_BUFFER_SIZE_BYTES);
-	memset(udp_rx.bytes, 0, UDP_BUFFER_SIZE);
-	memcpy(udp_rx.bytes, p->payload, p->len);
+	memset(udp_rx, 0, UDP_BUFFER_SIZE);
+	memcpy(udp_rx, p->payload, p->len);
 
-	int size = udp_size / 3; // a command has three bytes, let's loop through 3 at a time
-	for (i = 0; i < size; i++) {
-		udp_rx.frame[i].value = __builtin_bswap16(udp_rx.frame[i].value);
+	/* Parse the values */
+	i = 0;
+	header.version = udp_rx[i];
+	i++; // i==1
+	header.timestamp = __builtin_bswap32(udp_rx[i]);
+	i+=4; //i==5
 
-		DAC80508_set_output(udp_rx.frame[i].address , udp_rx.frame[i].value , &spi1_tx_buffer[i*3]);
+	for (j = 0; j < DAC80508_NUM_CHANNELS; j++) {
+		/* parse the address and value and put in SPI1 transmit buffer */
+		dac_addrs[j] = udp_rx[j+i];
+		i++;
+		vals[j] = __builtin_bswap16(udp_rx[j+i]);
+		i+=2;
 	}
-	i++;
-	DAC80508_send_trigger(&spi1_tx_buffer[i*3]); //software trigger: sets all the outputs simultaneously
-	i++;
-	spi_msg_size = 3*i;
+	// i== 29
+	spi_msg_size = DAC80508_set_outputs(dac_addrs, vals, spi1_tx_buffer);
+
+	/* check the end bytes for correctness */
+	end = (uint16_t)udp_rx[i] << 8 | udp_rx[i+1];
+	if(end != UDP_EOM){
+		sprintf(msg, "End bytes incorrect! Expected %x, got %x\r\n", UDP_EOM, end);
+		print_uart3(msg);
+	}
 
 	// signal main to initiate SPI transfer
 	spi_data_ready = 1;
@@ -688,66 +716,7 @@ void SPI1_DMA_txfer(void) {
     print_uart3(msg);
 }
 
-//void SPI1_DMA_txfer(void) {
-//
-//	//0. Disable the peripheral to allow to set the TSize
-//	LL_SPI_Disable(SPI1);
-//	// 1. Clear ALL relevant SPI flags (EOT, TXTF, and Errors)
-//	// If any error flags are set, the SPI might refuse to start CSTART
-//	LL_SPI_ClearFlag_EOT(SPI1);
-//	LL_SPI_ClearFlag_TXTF(SPI1);
-//	LL_SPI_ClearFlag_OVR(SPI1);
-//	LL_SPI_ClearFlag_UDR(SPI1);
-//
-//	// 2. Cache Maintenance
-//	SCB_CleanDCache_by_Addr((uint32_t*) spi1_tx_buffer, SPI_BUFFER_SIZE_BYTES);
-//
-//	// 3. Ensure both DMA streams are fully disabled before reconfiguration
-//	LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_0);
-//	LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_1);
-//	while (LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_0))
-//		;
-//	while (LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_1))
-//		;
-//
-//	// 4. Clear DMA Interrupt Flags
-//	LL_DMA_ClearFlag_TC0(DMA1); // TX Stream
-//	LL_DMA_ClearFlag_TC1(DMA1); // RX Stream
-//
-//	// 5. Re-set lengths
-//	LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_0, spi_msg_size);
-//	LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_1, spi_msg_size);
-//
-//	// 6. Enable DMA Streams (RX FIRST!)
-//	LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_1);
-//	LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_0);
-//
-//	// 7. SPI Configuration & Start
-//	LL_SPI_SetTransferSize(SPI1, spi_msg_size);
-//
-//	// Enable the transfer complete IRQ
-//	LL_DMA_EnableIT_TC(DMA1, LL_DMA_STREAM_1);
-//
-//	// CRITICAL: Ensure DMA Requests are enabled in the SPI peripheral
-//	LL_SPI_EnableDMAReq_RX(SPI1);
-//	LL_SPI_EnableDMAReq_TX(SPI1);
-//
-//	if (!LL_SPI_IsEnabled(SPI1)) {
-//		// Add this right before LL_SPI_Enable(...)
-//		while (LL_SPI_IsActiveFlag_RXP(SPI1)) {
-//			(void) LL_SPI_ReceiveData16(SPI1); // Read and discard
-//		}
-//		LL_SPI_Enable(SPI1);
-//	}
-//	char msg[100];
-////	sprintf(msg, "SPI bytes to transfer: %d %d %d \r\n", spi1_tx_buffer[0], spi1_tx_buffer[1], spi1_tx_buffer[2]);
-////	print_uart3(msg);
-//	// Trigger the transaction
-//	LL_SPI_StartMasterTransfer(SPI1);
-//
-//	sprintf(msg, "SPI Transfer initiated\r\n");
-//	print_uart3(msg);
-//}
+
 
 /* USER CODE END 4 */
 

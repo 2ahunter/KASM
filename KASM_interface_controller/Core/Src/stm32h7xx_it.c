@@ -194,7 +194,7 @@ void DMA1_Stream1_IRQHandler(void)
 		// 2. Invalidate the cache so the cache data isn't populated to the rx buffer:
 		SCB_InvalidateDCache_by_Addr((uint32_t*) spi1_rx_buffer, spi_buffer_length_bytes);
 		// set a flag informing main of completion
-//		spi_txfer_complete = 1;
+		spi_txfer_complete = 1;
 	}
 
   /* USER CODE END DMA1_Stream1_IRQn 1 */
