@@ -34,6 +34,12 @@
 #define DAC80508_READ_BIT          0x80  // MSB of the address byte
 #define DAC80508_NUM_CHANNELS       8
 
+/* --- Typedefs --- */
+typedef struct frame {
+    uint8_t reg;      // DAC Register address
+    uint16_t data;    // Command data 16 bits (0-65535)
+} frame_t;
+
 /**
  * @brief Configuration settings for hardware initialization.
  */
@@ -64,31 +70,8 @@ struct DAC80508_Config {
     uint16_t sync_mask;
 };
 
-/**
- * @brief Formats the initialization sequence.
- * * Fills the buffer with three 24-bit frames:
- * 1. Write to SYNC (0x02)
- * 2. Write to CONFIG (0x03)
- * 3. Write to GAIN (0x04)
- * * @param config Pointer to the settings.
- * @param tx_buffer Buffer to hold 9 bytes (3 SPI frames).
- */
-int DAC80508_init(struct DAC80508_Config *config, uint8_t *tx_buffer);
 
-/**
- * @brief Formats a 24-bit SPI frame for a single channel update.
- * @param channel DAC channel (0-7).
- * @param value 16-bit digital value.
- * @param tx_buffer Buffer to hold 3 bytes.
- */
-int DAC80508_set_output(int channel, uint16_t value, uint8_t *tx_buffer);
 
-/**
- * @brief Formats 8 consecutive SPI frames to update all DAC channels.
- * @param value_array Pointer to 8 uint16_t values.
- * @param tx_buffer Buffer to hold 24 bytes (8 channels * 3 bytes).
- */
-int DAC80508_set_outputs(uint8_t * addr_array, uint16_t *value_array, uint8_t *tx_buffer);
 
 /**
  * @brief Formats a 6-byte SPI sequence to initiate a register read and shift data out.
@@ -105,19 +88,6 @@ int DAC80508_read_reg(uint8_t reg, uint8_t *tx_buffer);
  */
 int DAC80508_write_reg(uint8_t reg, uint16_t value, uint8_t *tx_buffer);
 
-/**
- * @brief Formats a 3-byte SPI frame to update all DAC channels to the same value.
- * Using the BROADCAST register is faster than set_outputs for identical values.
- * @param value 16-bit digital value to be applied to all channels.
- * @param tx_buffer Buffer to hold 3 bytes.
- */
-int DAC80508_broadcast(uint16_t value, uint8_t *tx_buffer);
 
-/**
- * @brief Formats a 3-byte SPI frame to trigger a software LDAC.
- * Sets bit 4 of the TRIGGER register to update all synchronous channels.
- * @param tx_buffer Buffer to hold 3 bytes.
- */
-int DAC80508_send_trigger(uint8_t *tx_buffer);
 
 #endif /* DAC80508_H */
