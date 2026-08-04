@@ -57,3 +57,8 @@ dkms.conf
 .metadata
 Debug
 .launch
+
+.vscode/
+datasheets/
+utilities/.github/
+KASM_interface_controller/.cproject

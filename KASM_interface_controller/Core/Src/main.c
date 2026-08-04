@@ -1,0 +1,1035 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : Main program body
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2026 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+#include "lwip.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include "dac80508.h"
+#include "print_uart3.h"
+#include <string.h>
+
+/* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+#define UDP_BUFFER_SIZE 510 //bytes--largest value < 512 that is divisible by 3
+#define SPI_BUFFER_SIZE_BYTES 96 // keep 32 bit alignment, 3 bytes/actuator x 32 actuators
+#define SPI_BUFFER_SIZE_WORDS 48 // to keep 32 bit alignment
+#define DAC_ZERO (1<<16)/2
+#define COM_VERSION 0
+#define UDP_LENGTH 31
+#define UDP_EOM 0xdead
+
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+
+TIM_HandleTypeDef htim2;
+
+UART_HandleTypeDef huart3;
+
+/* USER CODE BEGIN PV */
+
+extern struct netif gnetif;
+
+struct DAC80508_Config dac_config;
+
+struct UDP_header{
+	uint8_t version;
+	uint32_t timestamp;
+};
+
+typedef struct cmd_frame{
+	uint8_t address;  // which DAC
+	uint16_t value;
+}cmd_frame;
+
+
+typedef struct command{
+    uint8_t version;   // Protocol version
+    uint32_t timestamp; // Timestamp in microseconds since app start
+    frame_t frame[DAC80508_NUM_CHANNELS];
+    uint16_t end;
+} command_t;
+
+
+uint8_t spi_buffer_length_bytes = SPI_BUFFER_SIZE_BYTES;
+
+
+uint32_t spi_msg_size = 0; //used for signaling the current spi message size in the DMA section
+
+/* SPI buffers */
+// Use compiler attributes to align to 32 bytes and pad the size to a multiple of 32
+
+__attribute__((section(".dma_buffer"), used, aligned(32)))   uint8_t spi1_tx_buffer[SPI_BUFFER_SIZE_BYTES];
+__attribute__((section(".dma_buffer"), used, aligned(32)))   uint8_t spi1_rx_buffer[SPI_BUFFER_SIZE_BYTES];
+
+volatile uint8_t spi_txfer_complete = 0; // All DMA SPI transfers are complete
+volatile uint8_t spi_data_ready = 0; // flag to indicate SPI data is ready for processing
+
+uint32_t sys_time_ms = 0;
+uint32_t start = 0;
+uint32_t end = 0;
+
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+void SystemClock_Config(void);
+static void MPU_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
+static void MX_SPI1_Init(void);
+static void MX_USART3_UART_Init(void);
+static void MX_TIM2_Init(void);
+/* USER CODE BEGIN PFP */
+
+int DAC80508_init(const struct DAC80508_Config *config, uint8_t *tx_buffer);
+int SPI_write_DAC(uint8_t reg, uint16_t value, uint8_t *tx_buffer);
+int SPI_read_DAC(uint8_t reg, uint8_t *tx_buffer);
+
+/**
+ * @brief sends a 24-bit SPI frame for a single channel update.
+ * @param channel DAC channel (0-7).
+ * @param value 16-bit digital value.
+ * @param tx_buffer Buffer to hold 3 bytes.
+ */
+int DAC80508_set_output(int channel, uint16_t value, uint8_t *tx_buffer);
+
+/**
+ * @brief sends 8 consecutive SPI frames to update all DAC channels.
+ * @param value_array Pointer to 8 uint16_t values.
+ * @param tx_buffer Buffer to hold 24 bytes (8 channels * 3 bytes).
+ */
+int DAC80508_set_outputs(uint16_t *value_array, uint8_t *tx_buffer);
+
+
+void SPI1_DMA_txfer(void);
+void deserialize_command(const uint8_t *buffer, command_t *out_cmd); // parses the byte stream into command
+void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
+		struct udp_pcb *upcb,   // Receiving Protocol Control Block
+		struct pbuf *p,         // Pointer to Datagram
+		const ip_addr_t *addr,  // Address of sender
+		u16_t port);
+
+uint32_t sys_time(void);
+
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+
+/* USER CODE END 0 */
+
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
+
+  /* USER CODE BEGIN 1 */
+
+  /* USER CODE END 1 */
+
+  /* MPU Configuration--------------------------------------------------------*/
+  MPU_Config();
+
+  /* Enable the CPU Cache */
+
+  /* Enable I-Cache---------------------------------------------------------*/
+  SCB_EnableICache();
+
+  /* Enable D-Cache---------------------------------------------------------*/
+  SCB_EnableDCache();
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+
+  /* USER CODE BEGIN Init */
+	dac_config.use_internal_ref = false;
+	dac_config.div_internal_ref = true;
+	dac_config.sync_mask = 0xffff; // broadcast enabled on all channels, sync enabled all channels
+	dac_config.channel_gain_mask = 0x0ff; // gain of 2 for all channels.
+
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
+  SystemClock_Config();
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_LWIP_Init();
+  MX_SPI1_Init();
+  MX_USART3_UART_Init();
+  MX_TIM2_Init();
+  /* USER CODE BEGIN 2 */
+
+	HAL_TIM_Base_Start_IT(&htim2);
+	memset(&spi1_tx_buffer, 0, sizeof(spi1_tx_buffer));
+	memset(&spi1_rx_buffer, 0, sizeof(spi1_rx_buffer));
+
+	char msg[1024] = { 0 };
+
+	print_uart3("Starting KASM Interface\r\n");
+
+	/*wait for IP address to be assigned. DHCP can take a few seconds*/
+
+	char no_ip[] = "0.0.0.0";
+
+	print_uart3("Waiting for IP address to be assigned\r\n");
+
+	while (strcmp(no_ip, ip4addr_ntoa(netif_ip4_addr(&gnetif))) == 0) {
+		MX_LWIP_Process();
+	}
+
+	/* Determine IP address */
+	sprintf(msg, "IP address: %s\r\n", ip4addr_ntoa(netif_ip4_addr(&gnetif)));
+	print_uart3(msg);
+	sprintf(msg, "Netmask: %s\r\n", ip4addr_ntoa(netif_ip4_netmask(&gnetif)));
+	print_uart3(msg);
+	sprintf(msg, "Gateway: %s\r\n", ip4addr_ntoa(netif_ip4_gw(&gnetif)));
+	print_uart3(msg);
+
+	u16_t port = 5001; // port to listen from
+
+	struct udp_pcb *my_udp = udp_new();
+
+	udp_bind(my_udp, IP_ADDR_ANY, port);
+	udp_recv(my_udp, udp_receive_callback, NULL);
+	if (((uint32_t) spi1_tx_buffer & 0xFF000000) != 0x30000000) {
+		sprintf(msg, "Buffer not in RAM D2: %lu\r\n",
+				(uint32_t) spi1_tx_buffer);
+		print_uart3(msg);
+	}
+
+	/* initialize the DAC */
+	DAC80508_init(&dac_config, spi1_tx_buffer);
+	sprintf(msg, "DAC initialized\r\n");
+	print_uart3(msg);
+
+
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+	while (1) {
+		MX_LWIP_Process();
+
+		if (spi_data_ready == 1) {
+			sprintf(msg, "Sending %lu bytes via SPI1 \r\n", spi_msg_size);
+			print_uart3(msg);
+			SPI1_DMA_txfer();
+			spi_data_ready = 0;
+		}
+		if (spi_txfer_complete == 1) {
+			char msg[100];
+
+			/* read returned bytes */
+			for (int i = 0; i < spi_msg_size; i++) {
+				sprintf(msg, "DAC[%d] : %02X \r\n", i, spi1_rx_buffer[i]);
+				print_uart3(msg);
+			}
+			spi_txfer_complete = 0;
+			spi_msg_size=0; // reset msg size
+		}
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+	}
+  /* USER CODE END 3 */
+}
+
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  /** Supply configuration update enable
+  */
+  HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY);
+
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE0);
+
+  while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
+
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_DIV1;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 4;
+  RCC_OscInitStruct.PLL.PLLN = 30;
+  RCC_OscInitStruct.PLL.PLLP = 2;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
+  RCC_OscInitStruct.PLL.PLLR = 2;
+  RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
+  RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
+  RCC_OscInitStruct.PLL.PLLFRACN = 0;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2
+                              |RCC_CLOCKTYPE_D3PCLK1|RCC_CLOCKTYPE_D1PCLK1;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.SYSCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB3CLKDivider = RCC_APB3_DIV2;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_APB1_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV2;
+  RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV2;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief SPI1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI1_Init(void)
+{
+
+  /* USER CODE BEGIN SPI1_Init 0 */
+	LL_DMA_ConfigAddresses(DMA1, LL_DMA_STREAM_0, (uint32_t) spi1_tx_buffer,
+			(uint32_t) &(SPI1->TXDR), LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+	LL_DMA_ConfigAddresses(DMA1, LL_DMA_STREAM_1, (uint32_t) &(SPI1->RXDR),
+			(uint32_t) spi1_rx_buffer, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+
+  /* USER CODE END SPI1_Init 0 */
+
+  LL_SPI_InitTypeDef SPI_InitStruct = {0};
+
+  LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+
+  /** Initializes the peripherals clock
+  */
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_SPI1;
+  PeriphClkInitStruct.Spi123ClockSelection = RCC_SPI123CLKSOURCE_PLL;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* Peripheral clock enable */
+  LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_SPI1);
+
+  LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOA);
+  LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOB);
+  /**SPI1 GPIO Configuration
+  PA4   ------> SPI1_NSS
+  PA5   ------> SPI1_SCK
+  PA6   ------> SPI1_MISO
+  PB5   ------> SPI1_MOSI
+  */
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_4|LL_GPIO_PIN_5|LL_GPIO_PIN_6;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  GPIO_InitStruct.Alternate = LL_GPIO_AF_5;
+  LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_5;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  GPIO_InitStruct.Alternate = LL_GPIO_AF_5;
+  LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* SPI1 DMA Init */
+
+  /* SPI1_TX Init */
+  LL_DMA_SetPeriphRequest(DMA1, LL_DMA_STREAM_0, LL_DMAMUX1_REQ_SPI1_TX);
+
+  LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_STREAM_0, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+
+  LL_DMA_SetStreamPriorityLevel(DMA1, LL_DMA_STREAM_0, LL_DMA_PRIORITY_LOW);
+
+  LL_DMA_SetMode(DMA1, LL_DMA_STREAM_0, LL_DMA_MODE_NORMAL);
+
+  LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_STREAM_0, LL_DMA_PERIPH_NOINCREMENT);
+
+  LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_STREAM_0, LL_DMA_MEMORY_INCREMENT);
+
+  LL_DMA_SetPeriphSize(DMA1, LL_DMA_STREAM_0, LL_DMA_PDATAALIGN_BYTE);
+
+  LL_DMA_SetMemorySize(DMA1, LL_DMA_STREAM_0, LL_DMA_MDATAALIGN_BYTE);
+
+  LL_DMA_EnableFifoMode(DMA1, LL_DMA_STREAM_0);
+
+  LL_DMA_SetFIFOThreshold(DMA1, LL_DMA_STREAM_0, LL_DMA_FIFOTHRESHOLD_1_2);
+
+  LL_DMA_SetMemoryBurstxfer(DMA1, LL_DMA_STREAM_0, LL_DMA_MBURST_SINGLE);
+
+  LL_DMA_SetPeriphBurstxfer(DMA1, LL_DMA_STREAM_0, LL_DMA_PBURST_SINGLE);
+
+  /* SPI1_RX Init */
+  LL_DMA_SetPeriphRequest(DMA1, LL_DMA_STREAM_1, LL_DMAMUX1_REQ_SPI1_RX);
+
+  LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_STREAM_1, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+
+  LL_DMA_SetStreamPriorityLevel(DMA1, LL_DMA_STREAM_1, LL_DMA_PRIORITY_LOW);
+
+  LL_DMA_SetMode(DMA1, LL_DMA_STREAM_1, LL_DMA_MODE_NORMAL);
+
+  LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_STREAM_1, LL_DMA_PERIPH_NOINCREMENT);
+
+  LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_STREAM_1, LL_DMA_MEMORY_INCREMENT);
+
+  LL_DMA_SetPeriphSize(DMA1, LL_DMA_STREAM_1, LL_DMA_PDATAALIGN_BYTE);
+
+  LL_DMA_SetMemorySize(DMA1, LL_DMA_STREAM_1, LL_DMA_MDATAALIGN_BYTE);
+
+  LL_DMA_DisableFifoMode(DMA1, LL_DMA_STREAM_1);
+
+  /* SPI1 interrupt Init */
+  NVIC_SetPriority(SPI1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
+  NVIC_EnableIRQ(SPI1_IRQn);
+
+  /* USER CODE BEGIN SPI1_Init 1 */
+
+  /* USER CODE END SPI1_Init 1 */
+  /* SPI1 parameter configuration*/
+  SPI_InitStruct.TransferDirection = LL_SPI_FULL_DUPLEX;
+  SPI_InitStruct.Mode = LL_SPI_MODE_MASTER;
+  SPI_InitStruct.DataWidth = LL_SPI_DATAWIDTH_8BIT;
+  SPI_InitStruct.ClockPolarity = LL_SPI_POLARITY_LOW;
+  SPI_InitStruct.ClockPhase = LL_SPI_PHASE_2EDGE;
+  SPI_InitStruct.NSS = LL_SPI_NSS_HARD_OUTPUT;
+  SPI_InitStruct.BaudRate = LL_SPI_BAUDRATEPRESCALER_DIV16;
+  SPI_InitStruct.BitOrder = LL_SPI_MSB_FIRST;
+  SPI_InitStruct.CRCCalculation = LL_SPI_CRCCALCULATION_DISABLE;
+  SPI_InitStruct.CRCPoly = 0x0;
+  LL_SPI_Init(SPI1, &SPI_InitStruct);
+  LL_SPI_SetStandard(SPI1, LL_SPI_PROTOCOL_MOTOROLA);
+  LL_SPI_SetFIFOThreshold(SPI1, LL_SPI_FIFO_TH_01DATA);
+  LL_SPI_EnableNSSPulseMgt(SPI1);
+  /* USER CODE BEGIN SPI1_Init 2 */
+
+  /* USER CODE END SPI1_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 240000-1;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
+  * @brief USART3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART3_Init 0 */
+
+  /* USER CODE END USART3_Init 0 */
+
+  /* USER CODE BEGIN USART3_Init 1 */
+
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart3.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart3, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart3, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART3_Init 2 */
+
+  /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream0_IRQn interrupt configuration */
+  NVIC_SetPriority(DMA1_Stream0_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
+  NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+  /* DMA1_Stream1_IRQn interrupt configuration */
+  NVIC_SetPriority(DMA1_Stream1_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
+  NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+
+}
+
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+
+  /* USER CODE END MX_GPIO_Init_1 */
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOH_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOG_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(LED0_GPIO_Port, LED0_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : LED0_Pin */
+  GPIO_InitStruct.Pin = LED0_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(LED0_GPIO_Port, &GPIO_InitStruct);
+
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+
+  /* USER CODE END MX_GPIO_Init_2 */
+}
+
+/* USER CODE BEGIN 4 */
+
+
+int SPI_write_DAC(uint8_t reg, uint16_t value, uint8_t *tx_buffer){
+	char msg[100];
+
+	spi_msg_size = DAC80508_write_reg(reg, value, tx_buffer);
+
+	if(spi_msg_size > 0){
+		/* reset spi_txfer_complete flag*/
+		spi_txfer_complete = 0;
+		sprintf(msg, "Sending %lu bytes via SPI1 to reg %d\r\n", spi_msg_size,reg);
+		print_uart3(msg);
+
+		for (int i = 0; i < spi_msg_size; i++) {
+			sprintf(msg, "[%02X] \r\n", tx_buffer[i]);
+			print_uart3(msg);
+		}
+
+		SPI1_DMA_txfer();
+		while(spi_txfer_complete == 0){
+			;
+		}
+		/* read returned bytes */
+		sprintf(msg, "Returned bytes:\r\n");
+		print_uart3(msg);
+		for (int i = 0; i < spi_msg_size; i++) {
+			sprintf(msg, "[%02X] \r\n", spi1_rx_buffer[i]);
+			print_uart3(msg);
+		}
+		sprintf(msg,"spi_write_dac: transfer complete, flag reset\r\n");
+		print_uart3(msg);
+
+		/* reset spi_txfer_complete flag */
+		spi_txfer_complete = 0;
+
+
+	} else {
+		sprintf(msg, "DAC_read_reg returned %lu \r\n", spi_msg_size);
+		print_uart3(msg);
+	}
+
+	return(0); // change this to return the rx_buffer bytes
+
+}
+
+int SPI_read_DAC(uint8_t reg, uint8_t *tx_buffer){
+	char msg[100];
+
+	// format the data and store in the tx_buffer
+	spi_msg_size = DAC80508_read_reg(reg, tx_buffer);
+
+	if(spi_msg_size > 0){
+		/* reset spi_txfer_complete flag*/
+		spi_txfer_complete = 0;
+		sprintf(msg, "Reading %lu bytes via SPI1 from reg %d\r\n", spi_msg_size, reg);
+		print_uart3(msg);
+		SPI1_DMA_txfer();
+		while(spi_txfer_complete == 0){
+			;
+		}
+		/* read returned bytes */
+//		for (int i = 0; i < spi_msg_size; i++) {
+//			sprintf(msg, "[%02X] \r\n", spi1_rx_buffer[i]);
+//			print_uart3(msg);
+//		}
+		/* reset spi_txfer_complete flag */
+		spi_txfer_complete = 0;
+		sprintf(msg,"spi_read_dac: transfer complete, flag reset\r\n");
+		print_uart3(msg);
+	} else {
+		sprintf(msg, "DAC_read_reg returned %lu \r\n", spi_msg_size);
+		print_uart3(msg);
+	}
+
+	// write a NOP to read the data
+	SPI_write_DAC(DAC80508_REG_NOP, 0x0000, tx_buffer);
+
+	return(0);
+
+}
+
+
+
+/**
+ * @brief Initializes the DAC80508 by writing directly to its configuration registers.
+ * * @param config Pointer to the configuration structure.
+ * @param tx_buffer Pointer to the SPI transmit buffer used by the SPI driver.
+ * @return int 0 on success, or a non-zero error code from spi_write.
+ */
+int DAC80508_init(const struct DAC80508_Config *config, uint8_t *tx_buffer) {
+    if (!config || !tx_buffer) return -1;
+
+    /* Write SYNC Register (0x02)
+     * Determines which channels update synchronously with LDAC.
+     */
+    SPI_write_DAC(DAC80508_REG_SYNC, config->sync_mask, tx_buffer);
+
+
+    /* Write CONFIG Register (0x03)
+     * Bit 8: REF_PWDWN (0 = Internal Ref ON, 1 = Internal Ref OFF)
+     */
+    uint16_t config_val = 0x0000;
+    if (!config->use_internal_ref) {
+        config_val |= (1 << 8); // Power down internal reference
+    }
+    SPI_write_DAC(DAC80508_REG_CONFIG, config_val, tx_buffer);
+
+
+    /* Write GAIN Register (0x04)
+     * Bit 8: REF_DIV (0 = Ref not divided, 1 = Ref divided by 2)
+     * Bits 0-7: GAIN for each channel (0 = Gain of 1, 1 = Gain of 2)
+     */
+    uint16_t gain_val = 0x0000;
+    if (config->div_internal_ref) {
+        gain_val |= (1 << 8);
+    }
+    gain_val |= config->channel_gain_mask;
+    SPI_write_DAC(DAC80508_REG_GAIN, gain_val, tx_buffer);
+
+
+    /* Set DACs to midpoint
+     * value = 2^16/2
+     * */
+    SPI_write_DAC(DAC80508_REG_BROADCAST, 32768, spi1_tx_buffer);
+
+    // verify device ID
+    SPI_read_DAC(DAC80508_REG_DEVICE_ID,tx_buffer);
+
+
+    return 0; // All initialization steps succeeded
+}
+
+/**
+ * @brief sends a 24-bit SPI frame for a single channel update.
+ * @param channel DAC channel (0-7).
+ * @param value 16-bit digital value.
+ * @param tx_buffer Buffer to hold 3 bytes.
+ */
+int DAC80508_set_output(int channel, uint16_t value, uint8_t *tx_buffer) {
+    if (!tx_buffer || channel < 0 || channel > 7) return -1;
+
+    /* DAC registers start at offset 0x08 (DAC0) through 0x0F (DAC7) */
+    uint8_t reg = DAC80508_REG_DAC0 + (uint8_t)channel;
+    SPI_write_DAC(reg, value, tx_buffer);
+
+    return(0);
+}
+
+/**
+ * @brief Formats 8 consecutive SPI frames to update all DAC channels.
+ * @param value_array Pointer to 8 uint16_t values.
+ * @param tx_buffer Buffer to hold 24 bytes (8 channels * 3 bytes).
+ */
+int DAC80508_set_outputs(uint16_t *value_array, uint8_t *tx_buffer) {
+    if (!tx_buffer || !value_array) return -1;
+
+    for (int i = 0; i < DAC80508_NUM_CHANNELS; i++) {
+        /* Calculate register address for each channel (0x08 to 0x0F) */
+        uint8_t reg = DAC80508_REG_DAC0 + (uint8_t)i;
+        SPI_write_DAC(reg, value_array[i], tx_buffer);
+    }
+    /* send trigger */
+    SPI_write_DAC(DAC80508_REG_TRIGGER, 0x0010, tx_buffer);
+
+    return(0);
+}
+
+
+void deserialize_command(const uint8_t *buffer, command_t *out_cmd) {
+    const uint8_t *ptr = buffer;
+
+    /* Protocol version */
+    out_cmd->version = *ptr++;
+
+    /* Timestamp (4 bytes)--provide a timing mark and ID for the host */
+    uint32_t ts_net;
+    memcpy(&ts_net, ptr, 4);
+    out_cmd->timestamp = ntohl(ts_net); // Network to Host Long
+    ptr += 4;
+
+    /* Frames--data */
+    for (int i = 0; i < DAC80508_NUM_CHANNELS; i++) {
+        out_cmd->frame[i].reg = *ptr++;
+
+        uint16_t data_net;
+        memcpy(&data_net, ptr, 2);
+        out_cmd->frame[i].data = ntohs(data_net); // Network to Host Short
+        ptr += 2;
+    }
+
+    /* End bytes--signal EOM */
+    uint16_t end_net;
+    memcpy(&end_net, ptr, 2);
+    out_cmd->end = ntohs(end_net);
+    ptr+=2;
+}
+
+void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
+		struct udp_pcb *upcb,   // Receiving Protocol Control Block
+		struct pbuf *p,         // Pointer to Datagram
+		const ip_addr_t *addr,  // Address of sender
+		u16_t port) {
+
+	char msg[100] = {0};
+
+	uint16_t vals[DAC80508_NUM_CHANNELS] = {0};
+	command_t out_cmd;
+
+	start = sys_time();
+	/* Process the data */
+	uint16_t udp_size = p->len;
+	if(udp_size != UDP_LENGTH){
+		sprintf(msg, "Buffer size incorrect. Received %d, expected %d\r\n", udp_size, UDP_LENGTH);
+		print_uart3(msg);
+		return;
+	}
+
+	/* Clear the SPI buffers of old values */
+	memset(spi1_tx_buffer,0,SPI_BUFFER_SIZE_BYTES);
+	memset(spi1_rx_buffer,0,SPI_BUFFER_SIZE_BYTES);
+
+	/* Parse the values */
+	deserialize_command(p->payload, &out_cmd);
+
+	/* Verify end bytes as data corruption check */
+	if(out_cmd.end != 0XDEAD){
+		sprintf(msg,"End bytes don't match %d != 0XDEAD \r\n", out_cmd.end);
+		print_uart3(msg);
+		return;
+	}
+
+	/* verify the output command */
+	sprintf(msg,"Received command at timestamp: %lu\r\n", out_cmd.timestamp);
+	print_uart3(msg);
+	for(int i=0; i<DAC80508_NUM_CHANNELS;i++){
+		vals[i] = out_cmd.frame[i].data;
+	}
+	sprintf(msg,"end: %04X \r\n", (uint16_t)out_cmd.end);
+	print_uart3(msg);
+
+	/* populate the SPI message with the registers and values */
+	spi_msg_size = DAC80508_set_outputs(vals, spi1_tx_buffer);
+
+	// signal main to initiate SPI transfer
+	spi_data_ready = 1;
+	end = sys_time();
+	pbuf_free(p);
+}
+
+uint32_t sys_time(void) {
+	uint32_t current = sys_time_ms * 1000 + (TIM2->CNT) / 240;
+	return (current); // current time in microseconds
+
+}
+
+/**************************************************************/
+void SPI1_DMA_txfer(void) {
+    // Disable SPI to allow configuration of TSIZE
+    LL_SPI_Disable(SPI1);
+
+    // Clear SPI Flags
+    LL_SPI_ClearFlag_EOT(SPI1);
+    LL_SPI_ClearFlag_TXTF(SPI1);
+    LL_SPI_ClearFlag_OVR(SPI1);
+    LL_SPI_ClearFlag_UDR(SPI1);
+
+    // Cache Maintenance: Push TX buffer to RAM
+    SCB_CleanDCache_by_Addr((uint32_t*) spi1_tx_buffer, SPI_BUFFER_SIZE_BYTES);
+
+    // Reset DMA Streams
+    LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_0);
+    LL_DMA_DisableStream(DMA1, LL_DMA_STREAM_1);
+    while (LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_0));
+    while (LL_DMA_IsEnabledStream(DMA1, LL_DMA_STREAM_1));
+
+    // Clear ALL DMA flags (including errors!)
+    // For DMA1 Stream 0 and 1 (Lower Interrupt Flag Clear Register)
+    DMA1->LIFCR = 0x0000003FU << 0;  // Stream 0
+    DMA1->LIFCR = 0x0000003FU << 6;  // Stream 1
+
+    // Set Addresses and Lengths
+	LL_DMA_ConfigAddresses(DMA1, LL_DMA_STREAM_0, (uint32_t) spi1_tx_buffer,
+			(uint32_t) &(SPI1->TXDR), LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+	LL_DMA_ConfigAddresses(DMA1, LL_DMA_STREAM_1, (uint32_t) &(SPI1->RXDR),
+			(uint32_t) spi1_rx_buffer, LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+
+    LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_0, spi_msg_size);
+    LL_DMA_SetDataLength(DMA1, LL_DMA_STREAM_1, spi_msg_size);
+
+    // Enable Streams (RX first)
+    LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_1);
+    LL_DMA_EnableStream(DMA1, LL_DMA_STREAM_0);
+
+    // Configure SPI
+    LL_SPI_SetTransferSize(SPI1, spi_msg_size);
+    LL_SPI_EnableDMAReq_RX(SPI1);
+    LL_SPI_EnableDMAReq_TX(SPI1);
+    LL_DMA_EnableIT_TC(DMA1, LL_DMA_STREAM_1);
+
+    // Clean FIFO and Enable
+    while (LL_SPI_IsActiveFlag_RXP(SPI1)) {
+        (void)SPI1->RXDR;
+    }
+
+    LL_SPI_Enable(SPI1);
+
+    LL_SPI_StartMasterTransfer(SPI1);
+
+    char msg[50];
+    sprintf(msg, "SPI DMA Transfer initiated\r\n");
+    print_uart3(msg);
+}
+
+
+
+/* USER CODE END 4 */
+
+ /* MPU Configuration */
+
+void MPU_Config(void)
+{
+  MPU_Region_InitTypeDef MPU_InitStruct = {0};
+
+  /* Disables the MPU */
+  HAL_MPU_Disable();
+
+  /** Initializes and configures the Region and the memory to be protected
+  */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER0;
+  MPU_InitStruct.BaseAddress = 0x0;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_4GB;
+  MPU_InitStruct.SubRegionDisable = 0x87;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /** Initializes and configures the Region and the memory to be protected
+  */
+  MPU_InitStruct.Number = MPU_REGION_NUMBER1;
+  MPU_InitStruct.BaseAddress = 0x30020000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_128KB;
+  MPU_InitStruct.SubRegionDisable = 0x0;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /** Initializes and configures the Region and the memory to be protected
+  */
+  MPU_InitStruct.Number = MPU_REGION_NUMBER2;
+  MPU_InitStruct.BaseAddress = 0x30040000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_512B;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+  /* Enables the MPU */
+  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
+
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM6 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM6)
+  {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
+}
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
+{
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
+  __disable_irq();
+  while (1)
+  {
+  }
+  /* USER CODE END Error_Handler_Debug */
+}
+#ifdef USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
+  /* USER CODE BEGIN 6 */
+  /* User can add his own implementation to report the file name and line number,
+     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */
