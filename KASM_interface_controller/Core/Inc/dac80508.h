@@ -79,7 +79,6 @@ struct DAC80508_Config {
  * @brief Formats a read SPI transaction into a frame.
  * @param reg The register address.
  * @param tx_buffer Buffer to hold frame.
- * @note this needs to be converted to big-endian before sending over SPI
  */
 int DAC80508_read_reg(uint8_t reg, uint32_t *tx_buffer);
 
@@ -88,7 +87,6 @@ int DAC80508_read_reg(uint8_t reg, uint32_t *tx_buffer);
  * @param reg The register address.
  * @param value 16-bit value.
  * @param tx_buffer Buffer to hold one frame.
- * @note this needs to be converted to big-endian before sending over SPI
  */
 int DAC80508_write_reg(uint8_t reg, uint16_t value, uint32_t *tx_buffer);
 

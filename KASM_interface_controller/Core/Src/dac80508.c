@@ -7,7 +7,7 @@
  * @param buf The buffer (3 bytes) to fill.
  */
 static void _format_frame(uint8_t reg, uint16_t value, uint32_t *buf) {
-    *buf =htonl( reg << 16 | value);
+    *buf = ( reg << 16 | value);
 }
 
 
@@ -37,8 +37,11 @@ int DAC80508_read_reg(uint8_t reg, uint32_t *tx_buffer) {
     int frames={0};
 
     uint8_t read_addr = reg | DAC80508_READ_BIT;
-    _format_frame(read_addr, 0x0000, tx_buffer);
+    _format_frame(read_addr, 0x0000, tx_buffer++);
     frames++;
+    _format_frame(DAC80508_REG_NOP, 0x0000, tx_buffer);
+    frames++;
+
 
     return(frames);
 }

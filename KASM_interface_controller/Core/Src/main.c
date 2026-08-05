@@ -42,6 +42,7 @@
 #define COM_VERSION 0
 #define UDP_LENGTH 31
 #define UDP_EOM 0xdead
+#define TESTING
 
 /* USER CODE END PD */
 
@@ -112,16 +113,6 @@ static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 int DAC80508_init(const struct DAC80508_Config *config, uint32_t *tx_buffer);
-int SPI_write_DAC(uint8_t reg, uint16_t value, uint32_t *tx_buffer);
-int SPI_read_DAC(uint8_t reg, uint32_t *tx_buffer);
-
-/**
- * @brief sends a 24-bit SPI frame for a single channel update.
- * @param channel DAC channel (0-7).
- * @param value 16-bit digital value.
- * @param tx_buffer Buffer to hold 3 bytes.
- */
-int DAC80508_set_output(int channel, uint16_t value, uint32_t *tx_buffer);
 
 /**
  * @brief sends 8 consecutive SPI frames to update all DAC channels.
@@ -260,10 +251,12 @@ int main(void)
 			char msg[100];
 
 			/* read returned bytes */
+#ifdef TESTING
 			for (int i = 0; i < spi_msg_size; i++) {
-				sprintf(msg, "DAC[%d] : %02X \r\n", i, spi1_rx_buffer[i]);
+				sprintf(msg, "DAC[%d] : %06lX \r\n", i, spi1_rx_buffer[i]);
 				print_uart3(msg);
 			}
+#endif
 			spi_txfer_complete = 0;
 			spi_msg_size=0; // reset msg size
 		}
@@ -620,80 +613,6 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 
-int SPI_write_DAC(uint8_t reg, uint16_t value, uint32_t *tx_buffer){
-	char msg[100];
-
-	spi_msg_size = DAC80508_write_reg(reg, value, tx_buffer);
-
-	if(spi_msg_size > 0){
-		/* reset spi_txfer_complete flag*/
-		spi_txfer_complete = 0;
-		sprintf(msg, "Sending %lu frame via SPI1 to reg %d\r\n", spi_msg_size,reg);
-		print_uart3(msg);
-
-		sprintf(msg, "0X%06X \r\n", ntohl( tx_buffer[0]));
-		print_uart3(msg);
-
-		SPI1_DMA_txfer();
-		while(spi_txfer_complete == 0){
-			;
-		}
-		/* read returned bytes */
-		sprintf(msg, "Returned frame:\r\n");
-		print_uart3(msg);
-
-		sprintf(msg, "0X%06X \r\n", ntohl(spi1_rx_buffer[0]));
-		print_uart3(msg);
-
-		sprintf(msg,"spi_write_dac: transfer complete, flag reset\r\n");
-		print_uart3(msg);
-
-
-	} else {
-		sprintf(msg, "DAC_read_reg returned %lu \r\n", spi_msg_size);
-		print_uart3(msg);
-	}
-
-	return(0); // change this to return the rx_buffer bytes
-
-}
-
-int SPI_read_DAC(uint8_t reg, uint32_t *tx_buffer){
-	char msg[100];
-	spi_msg_size = 0;
-
-	// format the data and store in the tx_buffer
-	spi_msg_size = DAC80508_read_reg(reg, tx_buffer++);
-
-	spi_msg_size += DAC80508_write_reg(DAC80508_REG_NOP, 0x0000, tx_buffer);
-
-
-	if(spi_msg_size > 0){
-
-		spi_txfer_complete = 0; // reset transfer flag
-		sprintf(msg, "Reading %lu frames via SPI1 from reg %d\r\n", spi_msg_size, reg);
-		print_uart3(msg);
-		SPI1_DMA_txfer();
-		while(spi_txfer_complete == 0){
-			;
-		}
-		sprintf(msg,"SPI_read_DAC: ");
-		print_uart3(msg);
-		for(int i = 0; i< spi_msg_size; i++){
-			sprintf(msg,"0X%06X, ", ntohl(spi1_rx_buffer[i]));
-			print_uart3(msg);
-		}
-		sprintf(msg,"\r\n");
-		print_uart3(msg);
-	} else {
-		sprintf(msg, "DAC_read_reg returned %lu \r\n", spi_msg_size);
-		print_uart3(msg);
-	}
-
-	return(0);
-
-}
-
 
 
 /**
@@ -706,15 +625,16 @@ int DAC80508_init(const struct DAC80508_Config *config, uint32_t *tx_buffer) {
     if (!config || !tx_buffer) return -1;
 
     char msg[80]={0};
+    spi_msg_size = 0;
 
     // verify device ID
-//    SPI_read_DAC(DAC80508_REG_DEVICE_ID,tx_buffer);
+    spi_msg_size = DAC80508_read_reg(DAC80508_REG_DEVICE_ID, tx_buffer);
+    tx_buffer += spi_msg_size; //a read requires two frames
 
     /* Write SYNC Register (0x02)
      * Determines which channels update synchronously with LDAC.
      */
-    spi_msg_size = DAC80508_write_reg(DAC80508_REG_SYNC, config->sync_mask, tx_buffer++);
-
+    spi_msg_size += DAC80508_write_reg(DAC80508_REG_SYNC, config->sync_mask, tx_buffer++);
 
     /* Write CONFIG Register (0x03)
      * Bit 8: REF_PWDWN (0 = Internal Ref ON, 1 = Internal Ref OFF)
@@ -751,21 +671,6 @@ int DAC80508_init(const struct DAC80508_Config *config, uint32_t *tx_buffer) {
     return 0; // All initialization steps succeeded
 }
 
-/**
- * @brief sends a 24-bit SPI frame for a single channel update.
- * @param channel DAC channel (0-7).
- * @param value 16-bit digital value.
- * @param tx_buffer Buffer to hold 3 bytes.
- */
-int DAC80508_set_output(int channel, uint16_t value, uint32_t *tx_buffer) {
-    if (!tx_buffer || channel < 0 || channel > 7) return -1;
-
-    /* DAC registers start at offset 0x08 (DAC0) through 0x0F (DAC7) */
-    uint8_t reg = DAC80508_REG_DAC0 + (uint8_t)channel;
-    SPI_write_DAC(reg, value, tx_buffer);
-
-    return(0);
-}
 
 /**
  * @brief Formats 8 consecutive SPI frames to update all DAC channels.
@@ -775,15 +680,20 @@ int DAC80508_set_output(int channel, uint16_t value, uint32_t *tx_buffer) {
 int DAC80508_set_outputs(uint16_t *value_array, uint32_t *tx_buffer) {
     if (!tx_buffer || !value_array) return -1;
 
-    for (int i = 0; i < DAC80508_NUM_CHANNELS; i++) {
+    int i=0;
+    spi_msg_size = 0;
+
+    for (i = 0; i < DAC80508_NUM_CHANNELS; i++) {
         /* Calculate register address for each channel (0x08 to 0x0F) */
         uint8_t reg = DAC80508_REG_DAC0 + (uint8_t)i;
-        SPI_write_DAC(reg, value_array[i], tx_buffer);
+        spi_msg_size = DAC80508_write_reg(reg, value_array[i], &tx_buffer[i]);
     }
+    i++;
     /* send trigger */
-    SPI_write_DAC(DAC80508_REG_TRIGGER, 0x0010, tx_buffer);
+    spi_msg_size += DAC80508_write_reg(DAC80508_REG_TRIGGER, 0x0010, &tx_buffer[i]);
 
-    return(0);
+
+    return(i); // i contains the number of frames to write
 }
 
 
