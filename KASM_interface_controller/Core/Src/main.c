@@ -36,8 +36,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define UDP_BUFFER_SIZE 510 //bytes--largest value < 512 that is divisible by 3
-#define SPI_BUFFER_SIZE_BYTES 24 // keep 32 bit alignment, 3 bytes/actuator x 32 actuators
-#define SPI_BUFFER_SIZE_WORDS 8 // to keep 32 bit alignment
+#define SPI_BUFFER_SIZE_WORDS 10
+#define SPI_BUFFER_SIZE_BYTES (SPI_BUFFER_SIZE_WORDS*3)
 #define DAC_ZERO (1<<16)/2
 #define COM_VERSION 0
 #define UDP_LENGTH 31
@@ -113,6 +113,7 @@ static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 int DAC80508_init(const struct DAC80508_Config *config, uint32_t *tx_buffer);
+int DAC80508_verify(uint32_t *tx_buffer);
 
 /**
  * @brief sends 8 consecutive SPI frames to update all DAC channels.
@@ -233,6 +234,8 @@ int main(void)
 	sprintf(msg, "DAC initialized\r\n");
 	print_uart3(msg);
 
+	DAC80508_verify(spi1_tx_buffer);
+
 
   /* USER CODE END 2 */
 
@@ -242,8 +245,10 @@ int main(void)
 		MX_LWIP_Process();
 
 		if (spi_data_ready == 1) {
+#ifdef TESTING
 			sprintf(msg, "Sending %lu bytes via SPI1 \r\n", spi_msg_size);
 			print_uart3(msg);
+#endif
 			SPI1_DMA_txfer();
 			spi_data_ready = 0;
 		}
@@ -624,17 +629,21 @@ static void MX_GPIO_Init(void)
 int DAC80508_init(const struct DAC80508_Config *config, uint32_t *tx_buffer) {
     if (!config || !tx_buffer) return -1;
 
+	/* Clear the SPI buffers of old values */
+	memset(spi1_tx_buffer,0,SPI_BUFFER_SIZE_BYTES);
+	memset(spi1_rx_buffer,0,SPI_BUFFER_SIZE_BYTES);
+
     char msg[80]={0};
     spi_msg_size = 0;
+    int index = 0;
 
-    // verify device ID
-    spi_msg_size = DAC80508_read_reg(DAC80508_REG_DEVICE_ID, tx_buffer);
-    tx_buffer += spi_msg_size; //a read requires two frames
+	/* verify device settings*/
+    index += DAC80508_read_reg(DAC80508_REG_DEVICE_ID, &tx_buffer[index]);
 
     /* Write SYNC Register (0x02)
      * Determines which channels update synchronously with LDAC.
      */
-    spi_msg_size += DAC80508_write_reg(DAC80508_REG_SYNC, config->sync_mask, tx_buffer++);
+    index += DAC80508_write_reg(DAC80508_REG_SYNC, config->sync_mask, &tx_buffer[index]);
 
     /* Write CONFIG Register (0x03)
      * Bit 8: REF_PWDWN (0 = Internal Ref ON, 1 = Internal Ref OFF)
@@ -643,7 +652,7 @@ int DAC80508_init(const struct DAC80508_Config *config, uint32_t *tx_buffer) {
     if (!config->use_internal_ref) {
         config_val |= (1 << 8); // Power down internal reference
     }
-    spi_msg_size += DAC80508_write_reg(DAC80508_REG_CONFIG, config_val, tx_buffer++);
+    index += DAC80508_write_reg(DAC80508_REG_CONFIG, config_val, &tx_buffer[index]);
 
     /* Write GAIN Register (0x04)
      * Bit 8: REF_DIV (0 = Ref not divided, 1 = Ref divided by 2)
@@ -654,12 +663,16 @@ int DAC80508_init(const struct DAC80508_Config *config, uint32_t *tx_buffer) {
         gain_val |= (1 << 8);
     }
     gain_val |= config->channel_gain_mask;
-    spi_msg_size += DAC80508_write_reg(DAC80508_REG_GAIN, gain_val, tx_buffer++);
+    index += DAC80508_write_reg(DAC80508_REG_GAIN, gain_val, &tx_buffer[index]);
 
     /* Set DACs to midpoint
      * value = 2^16/2
      * */
-    spi_msg_size += DAC80508_write_reg(DAC80508_REG_BROADCAST, DAC80508_MID_VAL, tx_buffer);
+    index += DAC80508_write_reg(DAC80508_REG_BROADCAST, 16000, &tx_buffer[index]);
+
+    index += DAC80508_write_reg(DAC80508_REG_NOP, 0x000000, &tx_buffer[index]);
+
+    spi_msg_size = index;
 
 	sprintf(msg, "Initializing DAC %lu frames via SPI1\r\n", spi_msg_size);
 	print_uart3(msg);
@@ -667,9 +680,54 @@ int DAC80508_init(const struct DAC80508_Config *config, uint32_t *tx_buffer) {
 	while(spi_txfer_complete == 0){
 		;
 	}
+	sprintf(msg, "DAC SPI RX returned:\r\n");
+	print_uart3(msg);
+	for(int i=0; i< spi_msg_size; i++){
+		sprintf(msg,"[0x%06lX]\r\n", spi1_rx_buffer[i]);
+		print_uart3(msg);
+	}
+
+	spi_txfer_complete = 0;
 
     return 0; // All initialization steps succeeded
 }
+
+int DAC80508_verify(uint32_t *tx_buffer){
+	char msg[80]={0};
+	spi_msg_size = 0;
+	int index = 0;
+
+	/* Clear the SPI buffers of old values */
+	memset(spi1_tx_buffer,0,SPI_BUFFER_SIZE_BYTES);
+	memset(spi1_rx_buffer,0,SPI_BUFFER_SIZE_BYTES);
+
+
+    index += DAC80508_read_reg(DAC80508_REG_SYNC, &tx_buffer[index]);
+
+    index += DAC80508_read_reg(DAC80508_REG_CONFIG, &tx_buffer[index]);
+
+    index += DAC80508_read_reg(DAC80508_REG_GAIN, &tx_buffer[index]);
+    spi_msg_size = index;
+
+	sprintf(msg, "Verifying DAC frames via SPI1\r\n");
+	print_uart3(msg);
+	SPI1_DMA_txfer();
+	while(spi_txfer_complete == 0){
+		;
+	}
+
+	sprintf(msg, "DAC config verification:\r\n");
+	print_uart3(msg);
+	for(int i=0; i< spi_msg_size; i++){
+		sprintf(msg,"[0x%06lX]\r\n", spi1_rx_buffer[i]);
+		print_uart3(msg);
+	}
+
+	spi_txfer_complete = 0;
+	return 0;
+
+}
+
 
 
 /**
@@ -686,14 +744,13 @@ int DAC80508_set_outputs(uint16_t *value_array, uint32_t *tx_buffer) {
     for (i = 0; i < DAC80508_NUM_CHANNELS; i++) {
         /* Calculate register address for each channel (0x08 to 0x0F) */
         uint8_t reg = DAC80508_REG_DAC0 + (uint8_t)i;
-        spi_msg_size = DAC80508_write_reg(reg, value_array[i], &tx_buffer[i]);
+        DAC80508_write_reg(reg, value_array[i], &tx_buffer[i]);
     }
-    i++;
     /* send trigger */
-    spi_msg_size += DAC80508_write_reg(DAC80508_REG_TRIGGER, 0x0010, &tx_buffer[i]);
+    DAC80508_write_reg(DAC80508_REG_TRIGGER, 0X10, &tx_buffer[i]);
+    spi_msg_size = i + 1;
 
-
-    return(i); // i contains the number of frames to write
+    return 0;
 }
 
 
@@ -760,6 +817,7 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 		return;
 	}
 
+#ifdef TESTING
 	/* verify the output command */
 	sprintf(msg,"Received command at timestamp: %lu\r\n", out_cmd.timestamp);
 	print_uart3(msg);
@@ -768,9 +826,10 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 	}
 	sprintf(msg,"end: %04X \r\n", (uint16_t)out_cmd.end);
 	print_uart3(msg);
+#endif
 
 	/* populate the SPI message with the registers and values */
-	spi_msg_size = DAC80508_set_outputs(vals, spi1_tx_buffer);
+	DAC80508_set_outputs(vals, spi1_tx_buffer);
 
 	// signal main to initiate SPI transfer
 	spi_data_ready = 1;
