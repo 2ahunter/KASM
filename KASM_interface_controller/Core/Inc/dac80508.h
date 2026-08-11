@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "lwip.h"
 
 /* --- DAC80508 Register Map --- */
 #define DAC80508_REG_NOP           0x00
@@ -30,9 +31,10 @@
 #define DAC80508_REG_DAC7          0x0F
 
 /* --- Frame Configuration --- */
-#define DAC80508_FRAME_SIZE        3     // 8 bit header, 16 bits value
-#define DAC80508_READ_BIT          0x80  // MSB of the address byte
-#define DAC80508_NUM_CHANNELS       8
+#define DAC80508_FRAME_SIZE		3     // 8 bit header, 16 bits value
+#define DAC80508_READ_BIT       0x80  // MSB of the address byte
+#define DAC80508_NUM_CHANNELS	8
+#define DAC80508_MID_VAL 		32737
 
 /* --- Typedefs --- */
 typedef struct frame {
@@ -74,19 +76,19 @@ struct DAC80508_Config {
 
 
 /**
- * @brief Formats a 6-byte SPI sequence to initiate a register read and shift data out.
+ * @brief Formats a read SPI transaction into a frame.
  * @param reg The register address.
- * @param tx_buffer Buffer to hold 6 bytes (3 bytes command + 3 bytes NOP).
+ * @param tx_buffer Buffer to hold frame.
  */
-int DAC80508_read_reg(uint8_t reg, uint8_t *tx_buffer);
+int DAC80508_read_reg(uint8_t reg, uint32_t *tx_buffer);
 
 /**
- * @brief Formats a 3-byte SPI frame for a generic register write.
+ * @brief Formats a 24bit SPI frame for a generic register write.
  * @param reg The register address.
  * @param value 16-bit value.
- * @param tx_buffer Buffer to hold 3 bytes.
+ * @param tx_buffer Buffer to hold one frame.
  */
-int DAC80508_write_reg(uint8_t reg, uint16_t value, uint8_t *tx_buffer);
+int DAC80508_write_reg(uint8_t reg, uint16_t value, uint32_t *tx_buffer);
 
 
 
