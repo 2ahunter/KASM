@@ -123,6 +123,14 @@ int DAC80508_verify(uint32_t *tx_buffer);
 int DAC80508_set_outputs(uint16_t *value_array, uint32_t *tx_buffer);
 
 
+/**
+ * @brief broadcast the same value to all outputs.
+ * @param value: uint16_t values.
+ * @param tx_buffer: SPI transmit buffer.
+ */
+int DAC80508_broadcast_verify(uint16_t value, uint32_t *tx_buffer);
+
+
 void SPI1_DMA_txfer(void);
 void deserialize_command(const uint8_t *buffer, command_t *out_cmd); // parses the byte stream into command
 void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
@@ -753,6 +761,20 @@ int DAC80508_set_outputs(uint16_t *value_array, uint32_t *tx_buffer) {
     return 0;
 }
 
+/**
+ * @brief broadcast the same value to all outputs.
+ * @param value: uint16_t values.
+ * @param tx_buffer: SPI transmit buffer.
+ */
+int DAC80508_broadcast_verify(uint16_t value, uint32_t *tx_buffer){
+	int i=0;
+	spi_msg_size = 0;
+
+	i+=DAC80508_write_reg(DAC80508_REG_BROADCAST, value, &tx_buffer[i]);
+	i+=DAC80508_read_reg(DAC80508_REG_DEVICE_ID, &tx_buffer[i]);
+	spi_msg_size = i;
+	return 0;
+}
 
 void deserialize_command(const uint8_t *buffer, command_t *out_cmd) {
     const uint8_t *ptr = buffer;
@@ -817,19 +839,27 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 		return;
 	}
 
-#ifdef TESTING
+
 	/* verify the output command */
 	sprintf(msg,"Received command at timestamp: %lu\r\n", out_cmd.timestamp);
 	print_uart3(msg);
 	for(int i=0; i<DAC80508_NUM_CHANNELS;i++){
 		vals[i] = out_cmd.frame[i].data;
 	}
+#ifdef TESTING
 	sprintf(msg,"end: %04X \r\n", (uint16_t)out_cmd.end);
 	print_uart3(msg);
 #endif
 
+
 	/* populate the SPI message with the registers and values */
+#ifdef TESTING
+	DAC80508_broadcast_verify(vals[0], spi1_tx_buffer);
+	sprintf(msg,"value sent: %d \r\n", vals[0]);
+	print_uart3(msg);
+#else
 	DAC80508_set_outputs(vals, spi1_tx_buffer);
+#endif
 
 	// signal main to initiate SPI transfer
 	spi_data_ready = 1;
