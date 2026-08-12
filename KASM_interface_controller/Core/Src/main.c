@@ -42,7 +42,7 @@
 #define COM_VERSION 0
 #define UDP_LENGTH 31
 #define UDP_EOM 0xdead
-#define TESTING
+//#define TESTING
 
 /* USER CODE END PD */
 
@@ -178,7 +178,7 @@ int main(void)
   /* USER CODE BEGIN Init */
 	dac_config.use_internal_ref = false;
 	dac_config.div_internal_ref = true;
-	dac_config.sync_mask = 0xffff; // broadcast enabled on all channels, sync enabled all channels
+	dac_config.sync_mask = 0xff00; // broadcast enabled on all channels, sync enabled all channels
 	dac_config.channel_gain_mask = 0x0ff; // gain of 2 for all channels.
 
   /* USER CODE END Init */
@@ -841,11 +841,15 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 
 
 	/* verify the output command */
+#ifdef TESTING
 	sprintf(msg,"Received command at timestamp: %lu\r\n", out_cmd.timestamp);
 	print_uart3(msg);
+#endif
+
 	for(int i=0; i<DAC80508_NUM_CHANNELS;i++){
 		vals[i] = out_cmd.frame[i].data;
 	}
+
 #ifdef TESTING
 	sprintf(msg,"end: %04X \r\n", (uint16_t)out_cmd.end);
 	print_uart3(msg);
@@ -926,11 +930,12 @@ void SPI1_DMA_txfer(void) {
 
     LL_SPI_StartMasterTransfer(SPI1);
 
+#ifdef TESTING
     char msg[50];
     sprintf(msg, "SPI DMA Transfer initiated\r\n");
     print_uart3(msg);
+#endif
 }
-
 
 
 /* USER CODE END 4 */
