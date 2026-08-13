@@ -178,7 +178,7 @@ int main(void)
   /* USER CODE BEGIN Init */
 	dac_config.use_internal_ref = false;
 	dac_config.div_internal_ref = true;
-	dac_config.sync_mask = 0xff00; // broadcast enabled on all channels, sync enabled all channels
+	dac_config.sync_mask = 0xff00; // broadcast enabled on all channels, sync disabled all channels
 	dac_config.channel_gain_mask = 0x0ff; // gain of 2 for all channels.
 
   /* USER CODE END Init */
@@ -261,7 +261,6 @@ int main(void)
 			spi_data_ready = 0;
 		}
 		if (spi_txfer_complete == 1) {
-			char msg[100];
 
 			/* read returned bytes */
 #ifdef TESTING
@@ -462,7 +461,7 @@ static void MX_SPI1_Init(void)
   SPI_InitStruct.ClockPolarity = LL_SPI_POLARITY_LOW;
   SPI_InitStruct.ClockPhase = LL_SPI_PHASE_2EDGE;
   SPI_InitStruct.NSS = LL_SPI_NSS_HARD_OUTPUT;
-  SPI_InitStruct.BaudRate = LL_SPI_BAUDRATEPRESCALER_DIV16;
+  SPI_InitStruct.BaudRate = LL_SPI_BAUDRATEPRESCALER_DIV4;
   SPI_InitStruct.BitOrder = LL_SPI_MSB_FIRST;
   SPI_InitStruct.CRCCalculation = LL_SPI_CRCCALCULATION_DISABLE;
   SPI_InitStruct.CRCPoly = 0x0;
