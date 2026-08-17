@@ -40,7 +40,7 @@
 #define SPI_BUFFER_SIZE_BYTES (SPI_BUFFER_SIZE_WORDS*3)
 #define DAC_ZERO (1<<16)/2
 #define COM_VERSION 0
-#define UDP_LENGTH 31
+#define UDP_LENGTH 35
 #define UDP_EOM 0xdead
 //#define TESTING
 
@@ -63,11 +63,6 @@ extern struct netif gnetif;
 
 struct DAC80508_Config dac_config;
 
-struct UDP_header{
-	uint8_t version;
-	uint32_t timestamp;
-};
-
 typedef struct cmd_frame{
 	uint8_t address;  // which DAC
 	uint16_t value;
@@ -76,7 +71,8 @@ typedef struct cmd_frame{
 
 typedef struct command{
     uint8_t version;   // Protocol version
-    uint32_t timestamp; // Timestamp in microseconds since app start
+    uint32_t seconds; // Timestamp in seconds since app start
+    uint32_t nanoseconds; // Timestamp nanoseconds
     frame_t frame[DAC80508_NUM_CHANNELS];
     uint16_t end;
 } command_t;
@@ -781,11 +777,16 @@ void deserialize_command(const uint8_t *buffer, command_t *out_cmd) {
     /* Protocol version */
     out_cmd->version = *ptr++;
 
-    /* Timestamp (4 bytes)--provide a timing mark and ID for the host */
-    uint32_t ts_net;
-    memcpy(&ts_net, ptr, 4);
-    out_cmd->timestamp = ntohl(ts_net); // Network to Host Long
-    ptr += 4;
+    /* Timestamp (seconds, nanoseconds, 8 bytes)--provide a timing mark and ID for the host */
+    uint32_t ts_net_sec;
+    memcpy(&ts_net_sec, ptr, sizeof(ts_net_sec));
+    out_cmd->seconds = ntohl(ts_net_sec); // Network to Host Long
+    ptr += sizeof(ts_net_sec);
+
+    uint32_t ts_net_nsec;
+    memcpy(&ts_net_nsec, ptr, sizeof(ts_net_nsec));
+    out_cmd->nanoseconds = ntohl(ts_net_nsec); // Network to Host Long
+    ptr += sizeof(ts_net_nsec);
 
     /* Frames--data */
     for (int i = 0; i < DAC80508_NUM_CHANNELS; i++) {
@@ -802,6 +803,25 @@ void deserialize_command(const uint8_t *buffer, command_t *out_cmd) {
     memcpy(&end_net, ptr, 2);
     out_cmd->end = ntohs(end_net);
     ptr+=2;
+
+#ifdef TESTING
+    char msg[100] = {0};
+    sprintf(msg, "Protocol version %d\r\n", out_cmd->version);
+    print_uart3(msg);
+    sprintf(msg, "Timestamp.sec = %lu\r\n", out_cmd->seconds);
+    print_uart3(msg);
+    sprintf(msg, "Timestamp.nsec = %09lu\r\n", out_cmd->nanoseconds);
+    print_uart3(msg);
+
+    for (int i = 0; i < DAC80508_NUM_CHANNELS; i++) {
+        sprintf(msg, "cmd: = %d\r\n", out_cmd->frame[i].data);
+        print_uart3(msg);
+
+    }
+    sprintf(msg, "End bytes = %d\r\n", out_cmd->end);
+    print_uart3(msg);
+
+#endif
 }
 
 void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
@@ -833,7 +853,7 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 
 	/* Verify end bytes as data corruption check */
 	if(out_cmd.end != 0XDEAD){
-		sprintf(msg,"End bytes don't match %d != 0XDEAD \r\n", out_cmd.end);
+		sprintf(msg,"End bytes don't match 0X%X != 0XDEAD \r\n", out_cmd.end);
 		print_uart3(msg);
 		return;
 	}
@@ -841,7 +861,7 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 
 	/* verify the output command */
 #ifdef TESTING
-	sprintf(msg,"Received command at timestamp: %lu\r\n", out_cmd.timestamp);
+	sprintf(msg,"Received command at timestamp: %lu.%09lu\r\n", out_cmd.seconds, out_cmd.nanoseconds);
 	print_uart3(msg);
 #endif
 
@@ -849,10 +869,6 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 		vals[i] = out_cmd.frame[i].data;
 	}
 
-#ifdef TESTING
-	sprintf(msg,"end: %04X \r\n", (uint16_t)out_cmd.end);
-	print_uart3(msg);
-#endif
 
 
 	/* populate the SPI message with the registers and values */
