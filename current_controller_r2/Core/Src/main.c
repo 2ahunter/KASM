@@ -53,14 +53,12 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
-volatile uint16_t mag_v = 0;
-volatile uint8_t phase_v = 0;
+volatile int16_t sense_v;
+int16_t ref_v = 0; // incoming reference voltage
 
 volatile uint8_t ADC_ready = 0; // flag for incoming data
 
 extern struct netif gnetif;
-
-struct DAC80508_Config dac_config;
 
 typedef struct cmd_frame{
 	uint8_t address;  // which channel (
@@ -89,6 +87,17 @@ static void MX_TIM2_Init(void);
 static void MX_ADC3_Init(void);
 static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
+
+static void update_output(void);
+
+void deserialize_command(const uint8_t *buffer, command_t *out_cmd); // parses the byte stream into command
+void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
+		struct udp_pcb *upcb,   // Receiving Protocol Control Block
+		struct pbuf *p,         // Pointer to Datagram
+		const ip_addr_t *addr,  // Address of sender
+		u16_t port);
+
+uint32_t sys_time(void);
 
 /* USER CODE END PFP */
 
@@ -146,7 +155,10 @@ int main(void)
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
-  // Enable ADC:
+  /* Enable our system timer */
+  HAL_TIM_Base_Start_IT(&htim2);
+
+  /* Enable ADC: */
   LL_ADC_Enable(ADC3);
   // Wait for hardware to stabilize
   while(!LL_ADC_IsActiveFlag_ADRDY(ADC3)){
@@ -155,10 +167,44 @@ int main(void)
   LL_ADC_EnableIT_EOC(ADC3);
   LL_ADC_REG_StartConversion(ADC3);
 
-  // enable the timer with interrupts on rollover
+
+  /* Enable the timer with interrupts on rollover */
   LL_TIM_EnableIT_UPDATE(TIM3);
-  // start the timer
   LL_TIM_EnableCounter(TIM3);
+
+	char msg[1024] = { 0 };
+
+	print_uart3("Starting KASM Interface\r\n");
+
+	/*wait for IP address to be assigned. DHCP can take a few seconds*/
+
+	char no_ip[] = "0.0.0.0";
+
+	print_uart3("Waiting for IP address to be assigned\r\n");
+
+	while (strcmp(no_ip, ip4addr_ntoa(netif_ip4_addr(&gnetif))) == 0) {
+		MX_LWIP_Process();
+	}
+
+	/* Determine IP address */
+	sprintf(msg, "IP address: %s\r\n", ip4addr_ntoa(netif_ip4_addr(&gnetif)));
+	print_uart3(msg);
+	sprintf(msg, "Netmask: %s\r\n", ip4addr_ntoa(netif_ip4_netmask(&gnetif)));
+	print_uart3(msg);
+	sprintf(msg, "Gateway: %s\r\n", ip4addr_ntoa(netif_ip4_gw(&gnetif)));
+	print_uart3(msg);
+
+	u16_t port = 5001; // port to listen from
+
+	struct udp_pcb *my_udp = udp_new();
+
+	udp_bind(my_udp, IP_ADDR_ANY, port);
+	udp_recv(my_udp, udp_receive_callback, NULL);
+	if (((uint32_t) spi1_tx_buffer & 0xFF000000) != 0x30000000) {
+		sprintf(msg, "Buffer not in RAM D2: %lu\r\n",
+				(uint32_t) spi1_tx_buffer);
+		print_uart3(msg);
+	}
 
 
   /* USER CODE END 2 */
@@ -167,13 +213,11 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  LL_TIM_OC_SetCompareCH3(TIM3, mag_v);
-	  if(phase_v==0){
-		  LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_9);
-	  } else {
-	  LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_9);
-
+	  if(ADC_ready == 1){
+		  update_output();
+		  ADC_ready=0; // clear the flag
 	  }
+
     /* USER CODE END WHILE */
 
 
@@ -714,6 +758,18 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+static void update_output(void) {
+	uint16_t mag_v = 0;
+	uint8_t phase_v = 0;// 0 is negative phase 1 is positive
+
+	LL_TIM_OC_SetCompareCH3(TIM3, mag_v);
+	if (phase_v == 0) {
+		LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_9);
+	} else {
+		LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_9);
+
+	}
+}
 
 
 /* USER CODE END 4 */
