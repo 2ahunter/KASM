@@ -165,16 +165,8 @@ SECTIONS
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
   } >RAM_D1
-  
- .dma_buffer (NOLOAD) :
-	{
-	  . = ALIGN(32);
-	  KEEP(*(.dma_buffer))
-	  KEEP(*(.dma_buffer.*))
-	  . = ALIGN(32);
-	} >RAM_D2
 
- .lwip_sec (NOLOAD) :
+  .lwip_sec (NOLOAD) :
   {
     . = ABSOLUTE(0x30040000);
     *(.RxDecripSection) 

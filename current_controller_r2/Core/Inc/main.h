@@ -67,6 +67,7 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+void update_controller(void);
 
 /* USER CODE END EFP */
 
@@ -87,6 +88,7 @@ void Error_Handler(void);
 #define LD2_GPIO_Port GPIOE
 
 /* USER CODE BEGIN Private defines */
+#define ZERO (1U << 15)
 
 /* USER CODE END Private defines */
 

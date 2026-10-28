@@ -41,7 +41,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-extern volatile int16_t sense_v;
+extern volatile int16_t v_sense;
 extern volatile uint8_t ADC_ADC_ready;
 /* USER CODE END PV */
 
@@ -208,6 +208,10 @@ void TIM2_IRQHandler(void)
 void TIM3_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM3_IRQn 0 */
+	if(LL_TIM_IsActiveFlag_UPDATE(TIM3)){
+		LL_TIM_ClearFlag_UPDATE(TIM3);
+		update_controller();
+	}
 
   /* USER CODE END TIM3_IRQn 0 */
   /* USER CODE BEGIN TIM3_IRQn 1 */
@@ -262,13 +266,13 @@ void ETH_IRQHandler(void)
 void ADC3_IRQHandler(void)
 {
   /* USER CODE BEGIN ADC3_IRQn 0 */
-
+	extern volatile uint8_t ADC_ready;
 	uint16_t raw_value = 0;
 
 	if (LL_ADC_IsActiveFlag_EOC(ADC3)) {
 		// Reading the register clears the EOC flag
 		raw_value = LL_ADC_REG_ReadConversionData16(ADC3);
-		sense_v = raw_value - ZERO;
+		v_sense = raw_value - ZERO;
 
 		ADC_ready = 1; //flag main that there is data available
 	}

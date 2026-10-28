@@ -19,6 +19,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "lwip.h"
+#include "math.h"
+#include <string.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -33,8 +35,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define ZERO (1U << 15)
+#define CMD_LIMIT ((1U << 14)-1) // maximum output command
 #define UDP_BUFFER_SIZE 510 //bytes--largest value < 512 that is divisible by 3
+#define CMD_BUFFER_SIZE_WORDS 10
+#define CMD_BUFFER_SIZE_BYTES (CMD_BUFFER_SIZE_WORDS*3)
 #define NUM_CHANNELS 8 // only interested in one value, but keeping the external protocol unchanged for this board
 #define COM_VERSION 0
 #define UDP_LENGTH 35
@@ -53,26 +57,39 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
-volatile int16_t sense_v;
-int16_t ref_v = 0; // incoming reference voltage
+volatile int16_t v_sense;
+int16_t v_ref = 0; // incoming reference voltage over UDP
 
 volatile uint8_t ADC_ready = 0; // flag for incoming data
+uint8_t cmds_received = 0; // flag for received control reference data
+
+uint8_t cmd_buffer[CMD_BUFFER_SIZE_BYTES] = {0}; // container for the incoming commands
+uint16_t cmds[NUM_CHANNELS] = {0};
 
 extern struct netif gnetif;
 
+/* Reference (command) Variables */
 typedef struct cmd_frame{
-	uint8_t address;  // which channel (
-	uint16_t value;
-}cmd_frame;
+	uint8_t address;  // actuator index
+	int16_t value;		// 16 bit current reference value
+}cmd_frame_t;
 
 typedef struct command{
     uint8_t version;   // Protocol version
     uint32_t seconds; // Timestamp in seconds since app start
     uint32_t nanoseconds; // Timestamp nanoseconds
-    frame_t frame[NUM_CHANNELS];
+    cmd_frame_t frame[NUM_CHANNELS];
     uint16_t end;
 } command_t;
 
+/* System Timer variables */
+uint32_t sys_time_ms = 0;
+uint32_t start = 0;
+uint32_t end = 0;
+
+/* controller state variables */
+static float e1 = 0.0f, e2 = 0.0f, e3 = 0.0f;
+static float u1 = 0.0f, u2 = 0.0f, u3 = 0.0f;
 
 /* USER CODE END PV */
 
@@ -88,9 +105,10 @@ static void MX_ADC3_Init(void);
 static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 
-static void update_output(void);
+static void init_controller(void);
 
 void deserialize_command(const uint8_t *buffer, command_t *out_cmd); // parses the byte stream into command
+
 void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 		struct udp_pcb *upcb,   // Receiving Protocol Control Block
 		struct pbuf *p,         // Pointer to Datagram
@@ -155,22 +173,25 @@ int main(void)
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
-  /* Enable our system timer */
-  HAL_TIM_Base_Start_IT(&htim2);
+	/* Enable our system timer */
+	HAL_TIM_Base_Start_IT(&htim2);
 
-  /* Enable ADC: */
-  LL_ADC_Enable(ADC3);
-  // Wait for hardware to stabilize
-  while(!LL_ADC_IsActiveFlag_ADRDY(ADC3)){
-	  ;
-  }
-  LL_ADC_EnableIT_EOC(ADC3);
-  LL_ADC_REG_StartConversion(ADC3);
+	/* Enable ADC: */
+	LL_ADC_Enable(ADC3);
+	// Wait for hardware to stabilize
+	while (!LL_ADC_IsActiveFlag_ADRDY(ADC3)) {
+		;
+	}
+	LL_ADC_EnableIT_EOC(ADC3);
+	LL_ADC_REG_StartConversion(ADC3);
+
+	init_controller(); // reset controller
+
+	/* Enable the timer with interrupts on rollover */
+	LL_TIM_EnableIT_UPDATE(TIM3);
+	LL_TIM_EnableCounter(TIM3);
 
 
-  /* Enable the timer with interrupts on rollover */
-  LL_TIM_EnableIT_UPDATE(TIM3);
-  LL_TIM_EnableCounter(TIM3);
 
 	char msg[1024] = { 0 };
 
@@ -200,9 +221,9 @@ int main(void)
 
 	udp_bind(my_udp, IP_ADDR_ANY, port);
 	udp_recv(my_udp, udp_receive_callback, NULL);
-	if (((uint32_t) spi1_tx_buffer & 0xFF000000) != 0x30000000) {
+	if (((uint32_t) cmd_buffer & 0xFF000000) != 0x30000000) {
 		sprintf(msg, "Buffer not in RAM D2: %lu\r\n",
-				(uint32_t) spi1_tx_buffer);
+				(uint32_t) cmd_buffer);
 		print_uart3(msg);
 	}
 
@@ -211,19 +232,19 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-	  if(ADC_ready == 1){
-		  update_output();
-		  ADC_ready=0; // clear the flag
-	  }
+	while (1) {
+		if (ADC_ready == 1) {
+			ADC_ready = 0; // clear the flag
+		}
+		if(cmds_received == 1){
+			v_ref = cmds[0];
+			cmds_received = 0;
+		}
 
-    /* USER CODE END WHILE */
+		/* USER CODE END WHILE */
 
-
-
-    /* USER CODE BEGIN 3 */
-  }
+		/* USER CODE BEGIN 3 */
+	}
   /* USER CODE END 3 */
 }
 
@@ -383,7 +404,7 @@ static void MX_ADC3_Init(void)
   /* USER CODE BEGIN ADC3_Init 2 */
 
   // override MX generated sampling time:
-  LL_ADC_SetChannelSamplingTime(ADC3, LL_ADC_CHANNEL_1, LL_ADC_SAMPLINGTIME_8CYCLE_5);
+  LL_ADC_SetChannelSamplingTime(ADC3, LL_ADC_CHANNEL_1, LL_ADC_SAMPLINGTIME_8CYCLES_5);
 
   LL_ADC_StartCalibration(ADC3, LL_ADC_CALIB_OFFSET_LINEARITY, LL_ADC_SINGLE_ENDED);
 
@@ -603,7 +624,7 @@ static void MX_TIM3_Init(void)
   /* USER CODE END TIM3_Init 1 */
   TIM_InitStruct.Prescaler = 0;
   TIM_InitStruct.CounterMode = LL_TIM_COUNTERMODE_UP;
-  TIM_InitStruct.Autoreload = 16384;
+  TIM_InitStruct.Autoreload = 16384-1;
   TIM_InitStruct.ClockDivision = LL_TIM_CLOCKDIVISION_DIV1;
   LL_TIM_Init(TIM3, &TIM_InitStruct);
   LL_TIM_EnableARRPreload(TIM3);
@@ -611,7 +632,7 @@ static void MX_TIM3_Init(void)
   TIM_OC_InitStruct.OCMode = LL_TIM_OCMODE_PWM1;
   TIM_OC_InitStruct.OCState = LL_TIM_OCSTATE_DISABLE;
   TIM_OC_InitStruct.OCNState = LL_TIM_OCSTATE_DISABLE;
-  TIM_OC_InitStruct.CompareValue = 8192;
+  TIM_OC_InitStruct.CompareValue = 0; // set PWM duty cycle to zero on init
   TIM_OC_InitStruct.OCPolarity = LL_TIM_OCPOLARITY_HIGH;
   LL_TIM_OC_Init(TIM3, LL_TIM_CHANNEL_CH3, &TIM_OC_InitStruct);
   LL_TIM_OC_DisableFast(TIM3, LL_TIM_CHANNEL_CH3);
@@ -758,19 +779,184 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-static void update_output(void) {
-	uint16_t mag_v = 0;
-	uint8_t phase_v = 0;// 0 is negative phase 1 is positive
 
-	LL_TIM_OC_SetCompareCH3(TIM3, mag_v);
-	if (phase_v == 0) {
+void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
+		struct udp_pcb *upcb,   // Receiving Protocol Control Block
+		struct pbuf *p,         // Pointer to Datagram
+		const ip_addr_t *addr,  // Address of sender
+		u16_t port) {
+
+	char msg[100] = {0};
+
+	command_t out_cmd;
+
+	start = sys_time();
+	/* Process the data */
+	uint16_t udp_size = p->len;
+	if(udp_size != UDP_LENGTH){
+		sprintf(msg, "Buffer size incorrect. Received %d, expected %d\r\n", udp_size, UDP_LENGTH);
+		print_uart3(msg);
+		return;
+	}
+
+	/* Clear the SPI buffers of old values */
+	memset(cmd_buffer,0,CMD_BUFFER_SIZE_BYTES);
+
+
+	/* Parse the values */
+	deserialize_command(p->payload, &out_cmd);
+
+	/* Verify end bytes as data corruption check */
+	if(out_cmd.end != 0XDEAD){
+		sprintf(msg,"End bytes don't match 0X%X != 0XDEAD \r\n", out_cmd.end);
+		print_uart3(msg);
+		return;
+	}
+
+	/* verify the output command */
+#ifdef TESTING
+	sprintf(msg,"Received command at timestamp: %lu.%09lu\r\n", out_cmd.seconds, out_cmd.nanoseconds);
+	print_uart3(msg);
+#endif
+
+	for(int i=0; i<NUM_CHANNELS;i++){
+		cmds[i] = out_cmd.frame[i].value;
+	}
+
+	// signal main that command data is ready
+	cmds_received = 1;
+	end = sys_time();
+	pbuf_free(p);
+}
+
+void deserialize_command(const uint8_t *buffer, command_t *out_cmd) {
+    const uint8_t *ptr = buffer;
+
+    /* Protocol version */
+    out_cmd->version = *ptr++;
+
+    /* Timestamp (seconds, nanoseconds, 8 bytes)--provide a timing mark and ID for the host */
+    uint32_t ts_net_sec;
+    memcpy(&ts_net_sec, ptr, sizeof(ts_net_sec));
+    out_cmd->seconds = ntohl(ts_net_sec); // Network to Host Long
+    ptr += sizeof(ts_net_sec);
+
+    uint32_t ts_net_nsec;
+    memcpy(&ts_net_nsec, ptr, sizeof(ts_net_nsec));
+    out_cmd->nanoseconds = ntohl(ts_net_nsec); // Network to Host Long
+    ptr += sizeof(ts_net_nsec);
+
+    /* Frames--data */
+    for (int i = 0; i < NUM_CHANNELS; i++) {
+        out_cmd->frame[i].address = *ptr++;
+
+        uint16_t data_net;
+        memcpy(&data_net, ptr, 2);
+        out_cmd->frame[i].value = ntohs(data_net); // Network to Host Short
+        ptr += 2;
+    }
+
+    /* End bytes--signal EOM */
+    uint16_t end_net;
+    memcpy(&end_net, ptr, 2);
+    out_cmd->end = ntohs(end_net);
+    ptr+=2;
+
+#ifdef TESTING
+    char msg[100] = {0};
+    sprintf(msg, "Protocol version %d\r\n", out_cmd->version);
+    print_uart3(msg);
+    sprintf(msg, "Timestamp.sec = %lu\r\n", out_cmd->seconds);
+    print_uart3(msg);
+    sprintf(msg, "Timestamp.nsec = %09lu\r\n", out_cmd->nanoseconds);
+    print_uart3(msg);
+
+    for (int i = 0; i < DAC80508_NUM_CHANNELS; i++) {
+        sprintf(msg, "cmd: = %d\r\n", out_cmd->frame[i].data);
+        print_uart3(msg);
+
+    }
+    sprintf(msg, "End bytes = %d\r\n", out_cmd->end);
+    print_uart3(msg);
+
+#endif
+}
+
+static void init_controller(void){
+
+	/* set PWM output to zero duty cycle */
+	LL_TIM_OC_SetCompareCH3(TIM3, 0);
+
+	/* reset history variables */
+	e1 = 0.0f;
+	e2 = 0.0f;
+	e3 = 0.0f;
+	u1 = 0.0f;
+	u2 = 0.0f;
+	u3 = 0.0f;
+
+}
+
+void update_controller(void) {
+
+	int duty_cycle = 0;
+
+	/* Error state variable */
+	float e0 = 0.0f;
+
+	/* Output state variable */
+	float u0 = 0.0f;
+
+	/* denominator coefficients */
+	float a1 = 0.0f;
+	float a2 = 0.0f;
+	float a3 = 0.0f;
+
+	/* numerator coefficients */
+	float b0 = 1.0f;
+	float b1 = 0.0f;
+	float b2 = 0.0f;
+	float b3 = 0.0f;
+
+	/* compute new output */
+	e0 = (float)v_ref - (float)v_sense; //new error term
+	u0 = b0*e0 + b1*e1 + b2*e2 + b3*e3 - a1*u1 - a2*u2 - a3*u3; // new output term
+
+	/* clamp output to [0 CMD_LIMIT]*/
+	float mag_float = fabsf(u0);
+	duty_cycle = (int)mag_float;
+
+	if(duty_cycle > CMD_LIMIT){
+		duty_cycle = CMD_LIMIT;
+	}
+
+	/* set output */
+	LL_TIM_OC_SetCompareCH3(TIM3, duty_cycle);
+
+	/* set phase output pin */
+	if (u0 < 0) {
 		LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_9);
 	} else {
 		LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_9);
-
 	}
+
+	/* update state variables */
+	e3 = e2;
+	e2 = e1;
+	e1 = e0;
+
+	u3 = u2;
+	u2 = u1;
+	u1 = u0;
+
 }
 
+
+uint32_t sys_time(void) {
+	uint32_t current = sys_time_ms * 1000 + (TIM2->CNT) / 240;
+	return (current); // current time in microseconds
+
+}
 
 /* USER CODE END 4 */
 
