@@ -19,11 +19,11 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "lwip.h"
-#include "math.h"
-#include <string.h>
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <math.h>
+#include <string.h>
 #include "print_uart3.h"
 
 /* USER CODE END Includes */
@@ -43,6 +43,7 @@
 #define COM_VERSION 0
 #define UDP_LENGTH 35
 #define UDP_EOM 0xdead
+#define TESTING
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -190,7 +191,7 @@ int main(void)
 	/* Enable the timer with interrupts on rollover */
 	LL_TIM_EnableIT_UPDATE(TIM3);
 	LL_TIM_EnableCounter(TIM3);
-
+	LL_TIM_OC_SetCompareCH3(TIM3, 8192);
 
 
 	char msg[1024] = { 0 };
@@ -233,17 +234,19 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 	while (1) {
+		MX_LWIP_Process();
 		if (ADC_ready == 1) {
 			ADC_ready = 0; // clear the flag
+
 		}
 		if(cmds_received == 1){
 			v_ref = cmds[0];
 			cmds_received = 0;
 		}
 
-		/* USER CODE END WHILE */
+    /* USER CODE END WHILE */
 
-		/* USER CODE BEGIN 3 */
+    /* USER CODE BEGIN 3 */
 	}
   /* USER CODE END 3 */
 }
@@ -615,8 +618,20 @@ static void MX_TIM3_Init(void)
   /* Peripheral clock enable */
   LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_TIM3);
 
+  LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOB);
+  /**TIM3 GPIO Configuration
+  PB1   ------> TIM3_CH4
+  */
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_1;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  GPIO_InitStruct.Alternate = LL_GPIO_AF_2;
+  LL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   /* TIM3 interrupt Init */
-  NVIC_SetPriority(TIM3_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),5, 0));
+  NVIC_SetPriority(TIM3_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
   NVIC_EnableIRQ(TIM3_IRQn);
 
   /* USER CODE BEGIN TIM3_Init 1 */
@@ -627,16 +642,16 @@ static void MX_TIM3_Init(void)
   TIM_InitStruct.Autoreload = 16384-1;
   TIM_InitStruct.ClockDivision = LL_TIM_CLOCKDIVISION_DIV1;
   LL_TIM_Init(TIM3, &TIM_InitStruct);
-  LL_TIM_EnableARRPreload(TIM3);
+  LL_TIM_DisableARRPreload(TIM3);
   LL_TIM_OC_EnablePreload(TIM3, LL_TIM_CHANNEL_CH3);
   TIM_OC_InitStruct.OCMode = LL_TIM_OCMODE_PWM1;
-  TIM_OC_InitStruct.OCState = LL_TIM_OCSTATE_DISABLE;
+  TIM_OC_InitStruct.OCState = LL_TIM_OCSTATE_ENABLE;
   TIM_OC_InitStruct.OCNState = LL_TIM_OCSTATE_DISABLE;
-  TIM_OC_InitStruct.CompareValue = 0; // set PWM duty cycle to zero on init
+  TIM_OC_InitStruct.CompareValue = 8192;
   TIM_OC_InitStruct.OCPolarity = LL_TIM_OCPOLARITY_HIGH;
   LL_TIM_OC_Init(TIM3, LL_TIM_CHANNEL_CH3, &TIM_OC_InitStruct);
   LL_TIM_OC_DisableFast(TIM3, LL_TIM_CHANNEL_CH3);
-  LL_TIM_SetTriggerOutput(TIM3, LL_TIM_TRGO_UPDATE);
+  LL_TIM_SetTriggerOutput(TIM3, LL_TIM_TRGO_RESET);
   LL_TIM_DisableMasterSlaveMode(TIM3);
   /* USER CODE BEGIN TIM3_Init 2 */
 
@@ -647,7 +662,7 @@ static void MX_TIM3_Init(void)
   */
   GPIO_InitStruct.Pin = LL_GPIO_PIN_8;
   GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE;
-  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_HIGH;
   GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
   GPIO_InitStruct.Alternate = LL_GPIO_AF_2;
@@ -813,11 +828,6 @@ void udp_receive_callback(void *arg, // User argument - udp_recv `arg` parameter
 		return;
 	}
 
-	/* verify the output command */
-#ifdef TESTING
-	sprintf(msg,"Received command at timestamp: %lu.%09lu\r\n", out_cmd.seconds, out_cmd.nanoseconds);
-	print_uart3(msg);
-#endif
 
 	for(int i=0; i<NUM_CHANNELS;i++){
 		cmds[i] = out_cmd.frame[i].value;
@@ -862,30 +872,32 @@ void deserialize_command(const uint8_t *buffer, command_t *out_cmd) {
     out_cmd->end = ntohs(end_net);
     ptr+=2;
 
-#ifdef TESTING
-    char msg[100] = {0};
-    sprintf(msg, "Protocol version %d\r\n", out_cmd->version);
-    print_uart3(msg);
-    sprintf(msg, "Timestamp.sec = %lu\r\n", out_cmd->seconds);
-    print_uart3(msg);
-    sprintf(msg, "Timestamp.nsec = %09lu\r\n", out_cmd->nanoseconds);
-    print_uart3(msg);
+//    char msg[100] = {0};
+//    sprintf(msg, "Protocol version %d\r\n", out_cmd->version);
+//    print_uart3(msg);
+//    sprintf(msg, "Timestamp.sec = %lu\r\n", out_cmd->seconds);
+//    print_uart3(msg);
+//    sprintf(msg, "Timestamp.nsec = %09lu\r\n", out_cmd->nanoseconds);
+//    print_uart3(msg);
+//
+//    for (int i = 0; i < NUM_CHANNELS; i++) {
+//        sprintf(msg, "cmd: = %d\r\n", out_cmd->frame[i].value);
+//        print_uart3(msg);
+//
+//    }
+//    sprintf(msg, "End bytes = %d\r\n", out_cmd->end);
+//    print_uart3(msg);
 
-    for (int i = 0; i < DAC80508_NUM_CHANNELS; i++) {
-        sprintf(msg, "cmd: = %d\r\n", out_cmd->frame[i].data);
-        print_uart3(msg);
-
-    }
-    sprintf(msg, "End bytes = %d\r\n", out_cmd->end);
-    print_uart3(msg);
-
-#endif
 }
 
 static void init_controller(void){
 
 	/* set PWM output to zero duty cycle */
 	LL_TIM_OC_SetCompareCH3(TIM3, 0);
+
+#ifdef TESTING
+	LL_TIM_OC_SetCompareCH3(TIM3, 8192);
+#endif
 
 	/* reset history variables */
 	e1 = 0.0f;
@@ -931,7 +943,9 @@ void update_controller(void) {
 	}
 
 	/* set output */
-	LL_TIM_OC_SetCompareCH3(TIM3, duty_cycle);
+
+//	 LL_TIM_OC_SetCompareCH3(TIM3, duty_cycle);
+
 
 	/* set phase output pin */
 	if (u0 < 0) {
