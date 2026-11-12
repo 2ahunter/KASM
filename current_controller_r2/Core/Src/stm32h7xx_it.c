@@ -42,7 +42,7 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
 extern volatile int16_t v_sense;
-extern volatile uint8_t ADC_ADC_ready;
+extern volatile uint8_t ADC_ready;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -208,9 +208,12 @@ void TIM2_IRQHandler(void)
 void TIM3_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM3_IRQn 0 */
+
 	if(LL_TIM_IsActiveFlag_UPDATE(TIM3)){
+		LL_GPIO_SetOutputPin(LD1_GPIO_Port, LD1_Pin);
 		LL_TIM_ClearFlag_UPDATE(TIM3);
 		update_controller();
+		LL_GPIO_ResetOutputPin(LD1_GPIO_Port, LD1_Pin);
 	}
 
   /* USER CODE END TIM3_IRQn 0 */
@@ -266,15 +269,25 @@ void ETH_IRQHandler(void)
 void ADC3_IRQHandler(void)
 {
   /* USER CODE BEGIN ADC3_IRQn 0 */
-	extern volatile uint8_t ADC_ready;
+
 	uint16_t raw_value = 0;
 
 	if (LL_ADC_IsActiveFlag_EOC(ADC3)) {
-		// Reading the register clears the EOC flag
-		raw_value = LL_ADC_REG_ReadConversionData16(ADC3);
-		v_sense = raw_value - ZERO;
+		LL_GPIO_SetOutputPin(LD1_GPIO_Port, LD1_Pin);
+		raw_value= LL_ADC_REG_ReadConversionData16(ADC3);
+		v_sense = (int16_t)raw_value-(int16_t)ZERO;
+		LL_ADC_ClearFlag_EOC(ADC3);
+		ADC_ready = 1;
+		LL_GPIO_ResetOutputPin(LD1_GPIO_Port, LD1_Pin);
+	}
 
-		ADC_ready = 1; //flag main that there is data available
+	/* Check and handle Overrun (OVR) flag */
+	if (LL_ADC_IsActiveFlag_OVR(ADC3))
+	{
+		LL_ADC_ClearFlag_OVR(ADC3);
+
+		/* Re-arm the ADC to listen for the next TIM3 TRGO event */
+		LL_ADC_REG_StartConversion(ADC3);
 	}
 
   /* USER CODE END ADC3_IRQn 0 */

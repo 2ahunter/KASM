@@ -35,7 +35,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define CMD_LIMIT ((1U << 14)-1) // maximum output command
+#define CMD_LIMIT 7500 // maximum output command
 #define UDP_BUFFER_SIZE 510 //bytes--largest value < 512 that is divisible by 3
 #define CMD_BUFFER_SIZE_WORDS 10
 #define CMD_BUFFER_SIZE_BYTES (CMD_BUFFER_SIZE_WORDS*3)
@@ -91,6 +91,62 @@ uint32_t end = 0;
 /* controller state variables */
 static float e1 = 0.0f, e2 = 0.0f, e3 = 0.0f;
 static float u1 = 0.0f, u2 = 0.0f, u3 = 0.0f;
+
+/* controller coefficients
+* Type 2 Compensator z=25, p = 500
+* b(num)=[ 0.          0.24591215 -0.24327733], a(den)=[ 1.         -1.80656136  0.80656136]
+* z = 25, p = 1000, gain = 200
+* b = [ 0.          0.44349692 -0.43874598], a=[ 1.         -1.65120413  0.65120413]
+*
+Double pole at 500 Hz
+Discrete-time Controller Transfer Function (ZOH):
+Numerator Coefficients: [ 0.          0.02771741 -0.0033421  -0.02386659]
+Denominator Coefficients: [ 1.         -2.6139444   2.26514854 -0.65120413]
+*
+*
+* Double pole at 600 Hz
+*Discrete-time Controller Transfer Function (ZOH):
+Numerator Coefficients: [ 0.          0.03881099 -0.0056318  -0.0324762 ]
+Denominator Coefficients: [ 1.         -2.54618083  2.14384962 -0.59766879]
+*/
+
+/* denominator coefficients */
+//float a1 = -1.80656136;
+//float a2 = 0.80656136f;
+//float a3 = 0;
+
+//float a1 = -1.65120413;
+//float a2 = 0.65120413;
+
+//float a1 = -2.6139444;
+//float a2 = 2.26514854;
+//float a3 = -0.65120413;
+
+float a1 =-2.54618083;
+float a2 = 2.14384962;
+float a3 = -0.59766879;
+
+/* numerator coefficients */
+//float b0 = 0.0;
+//float b1 = 0.24591215;
+//float b2 = -0.24327733f;
+//float b3 = 0;
+
+//float b0 = 0;
+//float b1 = 0.44349692;
+//float b2 = -0.43874598;
+
+//float b0 = 0;
+//float b1 = 0.02771741;
+//float b2 = -0.0033421;
+//float b3 = -0.02386659;
+
+float b0 = 0;
+float b1 = 0.05821648;
+float b2 = -0.0084477;
+float b3 = -0.04871431;
+
+
 
 /* USER CODE END PV */
 
@@ -233,10 +289,16 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+	int counter = 0;
 	while (1) {
 		MX_LWIP_Process();
 		if (ADC_ready == 1) {
 			ADC_ready = 0; // clear the flag
+			if(counter%2000 == 0){
+				sprintf(msg,"%d\r\n", v_sense);
+				print_uart3(msg);
+			}
+		counter++;
 
 		}
 		if(cmds_received == 1){
@@ -365,7 +427,7 @@ static void MX_ADC3_Init(void)
   /** Common config
   */
   LL_ADC_SetOverSamplingScope(ADC3, LL_ADC_OVS_GRP_REGULAR_CONTINUED);
-  LL_ADC_ConfigOverSamplingRatioShift(ADC3, 256, LL_ADC_OVS_SHIFT_RIGHT_8);
+  LL_ADC_ConfigOverSamplingRatioShift(ADC3, 64, LL_ADC_OVS_SHIFT_RIGHT_6);
   LL_ADC_SetOverSamplingDiscont(ADC3, LL_ADC_OVS_REG_CONT);
   ADC_InitStruct.Resolution = LL_ADC_RESOLUTION_16B;
   ADC_InitStruct.LowPowerMode = LL_ADC_LP_MODE_NONE;
@@ -651,7 +713,7 @@ static void MX_TIM3_Init(void)
   TIM_OC_InitStruct.OCPolarity = LL_TIM_OCPOLARITY_HIGH;
   LL_TIM_OC_Init(TIM3, LL_TIM_CHANNEL_CH3, &TIM_OC_InitStruct);
   LL_TIM_OC_DisableFast(TIM3, LL_TIM_CHANNEL_CH3);
-  LL_TIM_SetTriggerOutput(TIM3, LL_TIM_TRGO_RESET);
+  LL_TIM_SetTriggerOutput(TIM3, LL_TIM_TRGO_UPDATE);
   LL_TIM_DisableMasterSlaveMode(TIM3);
   /* USER CODE BEGIN TIM3_Init 2 */
 
@@ -895,18 +957,14 @@ static void init_controller(void){
 	/* set PWM output to zero duty cycle */
 	LL_TIM_OC_SetCompareCH3(TIM3, 0);
 
-#ifdef TESTING
-	LL_TIM_OC_SetCompareCH3(TIM3, 8192);
-#endif
-
 	/* reset history variables */
 	e1 = 0.0f;
 	e2 = 0.0f;
 	e3 = 0.0f;
+
 	u1 = 0.0f;
 	u2 = 0.0f;
 	u3 = 0.0f;
-
 }
 
 void update_controller(void) {
@@ -919,36 +977,23 @@ void update_controller(void) {
 	/* Output state variable */
 	float u0 = 0.0f;
 
-	/* denominator coefficients */
-	float a1 = 0.0f;
-	float a2 = 0.0f;
-	float a3 = 0.0f;
-
-	/* numerator coefficients */
-	float b0 = 1.0f;
-	float b1 = 0.0f;
-	float b2 = 0.0f;
-	float b3 = 0.0f;
-
 	/* compute new output */
 	e0 = (float)v_ref - (float)v_sense; //new error term
 	u0 = b0*e0 + b1*e1 + b2*e2 + b3*e3 - a1*u1 - a2*u2 - a3*u3; // new output term
 
-	/* clamp output to [0 CMD_LIMIT]*/
-	float mag_float = fabsf(u0);
-	duty_cycle = (int)mag_float;
 
+	float mag_float = fabsf(u0);
+	duty_cycle = mag_float;
+	/* clamp output to [0 CMD_LIMIT]*/
 	if(duty_cycle > CMD_LIMIT){
 		duty_cycle = CMD_LIMIT;
+		// how to reset integral windup?
 	}
 
-	/* set output */
-
-//	 LL_TIM_OC_SetCompareCH3(TIM3, duty_cycle);
-
-
+	/* set duty cycle */
+	LL_TIM_OC_SetCompareCH3(TIM3, duty_cycle);
 	/* set phase output pin */
-	if (u0 < 0) {
+	if (u0 >= 0) {
 		LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_9);
 	} else {
 		LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_9);
